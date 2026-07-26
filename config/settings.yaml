@@ -1,0 +1,65 @@
+project:
+  name: "TelemetryX"
+  version: "0.1.0"
+  random_seed: 42
+  timezone: "UTC"
+
+
+paths:
+  raw_data_dir: "data/raw"
+  interim_data_dir: "data/interim"
+  processed_data_dir: "data/processed"
+  fastf1_cache_dir: "data/raw/fastf1_cache"
+  model_dir: "models"
+  artifact_dir: "artifacts"
+
+
+data:
+  primary_source: "fastf1"
+  seasons:
+    - 2023
+    - 2024
+
+  default_session_type: "R"
+
+  load_laps: true
+  load_telemetry: false
+  load_weather: true
+  load_race_control_messages: true
+
+  cache_enabled: true
+
+
+sample_race:
+  season: 2024
+  event: "Bahrain"
+  session_type: "R"
+
+
+dataset:
+  snapshot_reference: "leader_lap_completion"
+  include_main_races_only: true
+  minimum_snapshot_lap: 1
+
+  exclude_inaccurate_laps_from_pace_features: true
+  preserve_raw_missing_values: true
+
+  processed_file_format: "parquet"
+
+
+splitting:
+  strategy: "chronological_race_level"
+
+  validation:
+    season: 2023
+    last_n_races: 5
+
+  test:
+    seasons:
+      - 2024
+
+
+logging:
+  level: "INFO"
+  save_logs_to_file: true
+  log_directory: "logs"
