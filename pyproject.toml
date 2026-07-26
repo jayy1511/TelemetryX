@@ -83,3 +83,10 @@ strict = true
 warn_unreachable = true
 show_error_codes = true
 pretty = true
+
+[[tool.mypy.overrides]]
+module = [
+    "fastf1",
+    "fastf1.*",
+]
+ignore_missing_imports = true

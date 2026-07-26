@@ -7,7 +7,6 @@ from fastf1.core import Session
 
 from telemetryx.config import Settings, load_settings
 
-
 EventIdentifier = str | int
 
 _SUPPORTED_SESSION_TYPES = frozenset(
@@ -113,13 +112,11 @@ def load_race_session(
     """
     active_settings = settings if settings is not None else load_settings()
 
-    selected_season, selected_event, selected_session_type = (
-        _resolve_session_selection(
-            settings=active_settings,
-            season=season,
-            event=event,
-            session_type=session_type,
-        )
+    selected_season, selected_event, selected_session_type = _resolve_session_selection(
+        settings=active_settings,
+        season=season,
+        event=event,
+        session_type=session_type,
     )
 
     configure_fastf1_cache(active_settings)
@@ -155,22 +152,14 @@ def _resolve_session_selection(
     session_type: str | None,
 ) -> tuple[int, EventIdentifier, str]:
     """Resolve and validate the requested race-session identifiers."""
-    selected_season = (
-        settings.sample_race.season
-        if season is None
-        else season
-    )
+    selected_season = settings.sample_race.season if season is None else season
 
     selected_event: EventIdentifier = (
-        settings.sample_race.event
-        if event is None
-        else event
+        settings.sample_race.event if event is None else event
     )
 
     selected_session_type = (
-        settings.sample_race.session_type
-        if session_type is None
-        else session_type
+        settings.sample_race.session_type if session_type is None else session_type
     )
 
     _validate_season(
@@ -179,9 +168,7 @@ def _resolve_session_selection(
     )
 
     normalised_event = _normalise_event(selected_event)
-    normalised_session_type = _normalise_session_type(
-        selected_session_type
-    )
+    normalised_session_type = _normalise_session_type(selected_session_type)
 
     return (
         selected_season,
@@ -199,9 +186,7 @@ def _validate_season(
         raise RaceLoadError("The requested season must be an integer.")
 
     if season not in configured_seasons:
-        allowed = ", ".join(
-            str(value) for value in configured_seasons
-        )
+        allowed = ", ".join(str(value) for value in configured_seasons)
         raise RaceLoadError(
             f"Season {season} is outside the configured data scope. "
             f"Allowed seasons: {allowed}."
@@ -217,9 +202,7 @@ def _normalise_event(event: EventIdentifier) -> EventIdentifier:
 
     if isinstance(event, int):
         if event < 1:
-            raise RaceLoadError(
-                "An event round number must be greater than zero."
-            )
+            raise RaceLoadError("An event round number must be greater than zero.")
 
         return event
 
@@ -227,31 +210,24 @@ def _normalise_event(event: EventIdentifier) -> EventIdentifier:
         normalised = event.strip()
 
         if not normalised:
-            raise RaceLoadError(
-                "An event name must not be empty."
-            )
+            raise RaceLoadError("An event name must not be empty.")
 
         return normalised
 
-    raise RaceLoadError(
-        "The event must be a non-empty name or positive round number."
-    )
+    raise RaceLoadError("The event must be a non-empty name or positive round number.")
 
 
 def _normalise_session_type(session_type: str) -> str:
     """Validate and normalize a FastF1 session abbreviation."""
     if not isinstance(session_type, str):
-        raise RaceLoadError(
-            "The session type must be a string."
-        )
+        raise RaceLoadError("The session type must be a string.")
 
     normalised = session_type.strip().upper()
 
     if normalised not in _SUPPORTED_SESSION_TYPES:
         supported = ", ".join(sorted(_SUPPORTED_SESSION_TYPES))
         raise RaceLoadError(
-            f"Unsupported session type {session_type!r}. "
-            f"Supported values: {supported}."
+            f"Unsupported session type {session_type!r}. Supported values: {supported}."
         )
 
     return normalised
