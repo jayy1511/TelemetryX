@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import argparse
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
 import fastf1
+import numpy as np
 import pandas as pd
 
 from telemetryx.config import Settings, load_settings
@@ -601,29 +603,70 @@ def _coerce_positive_integer(
     if value is pd.NA or value is pd.NaT:
         return None
 
+    if isinstance(value, bool):
+        return None
+
     if isinstance(
         value,
-        bool,
+        (int, np.integer),
     ):
-        return None
+        try:
+            integer_value = int(str(value))
+        except ValueError:
+            return None
 
-    try:
-        numeric_value = float(value)
-    except (
-        TypeError,
-        ValueError,
+        if integer_value <= 0:
+            return None
+
+        return integer_value
+
+    if isinstance(
+        value,
+        (float, np.floating),
     ):
-        return None
+        try:
+            numeric_value = float(str(value))
+        except ValueError:
+            return None
 
-    if not numeric_value.is_integer():
-        return None
+        if not math.isfinite(numeric_value):
+            return None
 
-    integer_value = int(numeric_value)
+        if not numeric_value.is_integer():
+            return None
 
-    if integer_value <= 0:
-        return None
+        integer_value = int(numeric_value)
 
-    return integer_value
+        if integer_value <= 0:
+            return None
+
+        return integer_value
+
+    if isinstance(value, str):
+        normalized = value.strip()
+
+        if not normalized:
+            return None
+
+        try:
+            numeric_value = float(normalized)
+        except ValueError:
+            return None
+
+        if not math.isfinite(numeric_value):
+            return None
+
+        if not numeric_value.is_integer():
+            return None
+
+        integer_value = int(numeric_value)
+
+        if integer_value <= 0:
+            return None
+
+        return integer_value
+
+    return None
 
 
 def _validate_positive_integer(
