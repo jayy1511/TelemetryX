@@ -1,5 +1,3 @@
-"""Tests for building and persisting the multi-race TelemetryX corpus."""
-
 from __future__ import annotations
 
 import json
