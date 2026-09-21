@@ -145,8 +145,8 @@ The baseline API is in `telemetryx.modeling.baseline`:
 
 ```python
 from telemetryx.modeling.baseline import (
-	predict_winner_probabilities,
-	train_baseline_winner_model,
+    predict_winner_probabilities,
+    train_baseline_winner_model,
 )
 from telemetryx.features.engineering import engineer_race_features
 

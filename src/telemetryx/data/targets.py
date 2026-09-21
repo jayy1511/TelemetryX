@@ -112,7 +112,8 @@ def build_winner_targets(
             f"{', '.join(affected_drivers)}."
         )
 
-    winner_mask = working["_FinalPosition"].eq(1)
+    winner_mask = working["_FinalPosition"].eq(1).fillna(False).astype("boolean")
+
     winner_count = int(winner_mask.sum())
 
     if winner_count != 1:
@@ -121,7 +122,7 @@ def build_winner_targets(
             f"driver; found {winner_count}."
         )
 
-    working[TARGET_COLUMN] = winner_mask.astype("boolean")
+    working[TARGET_COLUMN] = winner_mask
 
     targets = (
         working.sort_values(
@@ -335,54 +336,51 @@ def _normalize_driver_series(
 
 def _coerce_final_positions(
     series: pd.Series[Any],
-) -> pd.Series[Any]:
-    """Convert final positions to positive nullable integers."""
-    numeric_positions = pd.to_numeric(
+) -> pd.Series:
+    """
+    Normalize final race positions while allowing unclassified drivers.
+
+    Missing final positions are valid for drivers who were not classified.
+    Non-missing positions must still be numeric, positive whole numbers.
+    """
+    numeric = pd.to_numeric(
         series,
         errors="coerce",
     )
 
-    failed_conversions = series.notna() & numeric_positions.isna()
+    source_missing = series.isna()
 
-    if bool(failed_conversions.any()):
-        affected_indices = series.index[failed_conversions].tolist()[:5]
+    invalid_numeric = numeric.isna() & ~source_missing
 
-        raise RaceTargetError(
-            "Position contains non-numeric values at rows: "
-            f"{_format_indices(affected_indices)}."
-        )
-
-    missing_positions = numeric_positions.isna()
-
-    if bool(missing_positions.any()):
-        affected_indices = series.index[missing_positions].tolist()[:5]
+    if bool(invalid_numeric.any()):
+        invalid_rows = [str(index) for index in series.index[invalid_numeric].tolist()]
 
         raise RaceTargetError(
-            "Position contains missing values at rows: "
-            f"{_format_indices(affected_indices)}."
+            f"Position contains non-numeric values at rows: {', '.join(invalid_rows)}."
         )
 
-    non_positive_positions = numeric_positions.le(0)
+    non_missing = numeric.notna()
 
-    if bool(non_positive_positions.any()):
-        affected_indices = series.index[non_positive_positions].tolist()[:5]
+    fractional = non_missing & numeric.mod(1).ne(0)
+
+    if bool(fractional.any()):
+        invalid_rows = [str(index) for index in series.index[fractional].tolist()]
 
         raise RaceTargetError(
-            "Position must contain positive values at rows: "
-            f"{_format_indices(affected_indices)}."
+            "Position must contain whole numbers. Invalid rows: "
+            f"{', '.join(invalid_rows)}."
         )
 
-    fractional_positions = numeric_positions.mod(1).ne(0)
+    non_positive = non_missing & numeric.le(0)
 
-    if bool(fractional_positions.any()):
-        affected_indices = series.index[fractional_positions].tolist()[:5]
+    if bool(non_positive.any()):
+        invalid_rows = [str(index) for index in series.index[non_positive].tolist()]
 
         raise RaceTargetError(
-            "Position must contain whole numbers at rows: "
-            f"{_format_indices(affected_indices)}."
+            "Position must contain positive values. Invalid rows: "
+            f"{', '.join(invalid_rows)}."
         )
-
-    return numeric_positions.astype("Int64")
+    return numeric.astype("Int64")
 
 
 def _normalize_target_series(

@@ -299,10 +299,6 @@ def test_missing_result_driver_values_are_rejected(
     ("invalid_position", "expected_message"),
     [
         (
-            None,
-            "Position contains missing values",
-        ),
-        (
             "not-a-position",
             "Position contains non-numeric values",
         ),
@@ -324,7 +320,7 @@ def test_invalid_final_positions_are_rejected(
     invalid_position: object,
     expected_message: str,
 ) -> None:
-    """Final positions must be present, numeric, positive, and whole."""
+    """Non-missing final positions must be numeric, positive, and whole."""
     results = make_results()
     results["Position"] = results["Position"].astype("object")
 
@@ -881,3 +877,77 @@ def test_duplicate_target_columns_are_rejected() -> None:
             make_replay(),
             targets,
         )
+
+
+def test_missing_winner_position_is_not_inferred() -> None:
+    """Targets still require one explicit first-place finisher."""
+    results = pd.DataFrame(
+        {
+            "Abbreviation": [
+                "VER",
+                "NOR",
+                "BOT",
+            ],
+            "Position": pd.Series(
+                [
+                    pd.NA,
+                    2,
+                    3,
+                ],
+                dtype="Int64",
+            ),
+            "Status": [
+                "Finished",
+                "Finished",
+                "Finished",
+            ],
+        }
+    )
+
+    with pytest.raises(
+        RaceTargetError,
+        match="exactly one",
+    ):
+        build_winner_targets(results)
+
+
+def test_missing_non_winner_position_is_allowed() -> None:
+    """Unclassified drivers may have missing final positions."""
+    results = pd.DataFrame(
+        {
+            "Abbreviation": [
+                "VER",
+                "NOR",
+                "BOT",
+            ],
+            "Position": pd.Series(
+                [
+                    1,
+                    2,
+                    pd.NA,
+                ],
+                dtype="Int64",
+            ),
+            "Status": [
+                "Finished",
+                "Finished",
+                "Retired",
+            ],
+        }
+    )
+
+    targets = build_winner_targets(results)
+
+    assert targets["Driver"].tolist() == [
+        "VER",
+        "NOR",
+        "BOT",
+    ]
+
+    assert targets["WonRace"].tolist() == [
+        True,
+        False,
+        False,
+    ]
+
+    assert int(targets["WonRace"].sum()) == 1
