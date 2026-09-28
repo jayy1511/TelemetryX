@@ -138,6 +138,16 @@ def engineer_race_features(
 
     _reject_disallowed_source_columns(working)
 
+    unexpected_missing_leader = working["IsLeader"].isna() & working["Position"].notna()
+
+    if bool(unexpected_missing_leader.any()):
+        raise FeatureEngineeringError(
+            "IsLeader is missing for one or more drivers "
+            "that still have a known Position."
+        )
+
+    working["IsLeader"] = working["IsLeader"].fillna(False).astype("boolean")
+
     snapshot_groups = [
         working["RaceId"],
         working["SnapshotLap"],
@@ -165,7 +175,7 @@ def engineer_race_features(
 
     working["IsLapped"] = working["LapsBehindLeader"].gt(0).astype("boolean")
 
-    working["IsTopThree"] = working["Position"].le(3).astype("boolean")
+    working["IsTopThree"] = working["Position"].le(3).fillna(False).astype("boolean")
 
     working["AverageLapTimeSeconds"] = _calculate_average_lap_time(
         cumulative_lap_time=working["CumulativeLapTimeSeconds"],
@@ -487,10 +497,12 @@ def _validate_field_size(
 def _validate_position_fraction(
     features: pd.DataFrame,
 ) -> None:
-    """Require normalized position values to remain inside [0, 1]."""
+    """Require known normalized position values to remain inside [0, 1]."""
     values = features["PositionFraction"]
 
-    invalid = values.isna() | values.lt(0.0) | values.gt(1.0)
+    known_values = values.dropna()
+
+    invalid = known_values.lt(0.0) | known_values.gt(1.0)
 
     if bool(invalid.any()):
         raise FeatureEngineeringError("PositionFraction must remain between 0 and 1.")

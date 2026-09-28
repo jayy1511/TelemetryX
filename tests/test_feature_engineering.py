@@ -954,3 +954,59 @@ def test_validate_feature_frame_rejects_infinite_numeric_value() -> None:
         match="contains non-finite numeric values",
     ):
         validate_feature_frame(features)
+
+
+def test_missing_current_position_is_preserved_for_retired_driver() -> None:
+    """A stopped driver may remain represented without a current position."""
+    race_dataset = make_race_dataset()
+
+    retired_mask = race_dataset["SnapshotLap"].eq(3) & race_dataset["Driver"].eq("BOT")
+
+    race_dataset["IsLeader"] = race_dataset["IsLeader"].astype("boolean")
+
+    race_dataset.loc[
+        retired_mask,
+        "Position",
+    ] = pd.NA
+
+    race_dataset.loc[
+        retired_mask,
+        "IsLeader",
+    ] = pd.NA
+
+    features = engineer_race_features(race_dataset)
+
+    retired_row = features.loc[
+        features["SnapshotLap"].eq(3) & features["Driver"].eq("BOT")
+    ].iloc[0]
+
+    assert pd.isna(retired_row["Position"])
+
+    assert pd.isna(retired_row["PositionFraction"])
+
+    assert bool(retired_row["IsLeader"]) is False
+
+    assert bool(retired_row["IsTopThree"]) is False
+
+
+def test_missing_leader_flag_with_known_position_is_rejected() -> None:
+    """Missing IsLeader is only valid when current Position is unavailable."""
+    race_dataset = make_race_dataset()
+
+    race_dataset["IsLeader"] = race_dataset["IsLeader"].astype("boolean")
+
+    row_mask = race_dataset["SnapshotLap"].eq(2) & race_dataset["Driver"].eq("NOR")
+
+    race_dataset.loc[
+        row_mask,
+        "IsLeader",
+    ] = pd.NA
+
+    with pytest.raises(
+        FeatureEngineeringError,
+        match=(
+            "IsLeader is missing for one or more drivers "
+            "that still have a known Position"
+        ),
+    ):
+        engineer_race_features(race_dataset)
