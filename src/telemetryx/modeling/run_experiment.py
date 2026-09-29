@@ -1,5 +1,3 @@
-"""Run the TelemetryX baseline experiment from the command line."""
-
 from __future__ import annotations
 
 import argparse
@@ -16,6 +14,7 @@ from telemetryx.modeling.experiment import (
     BaselineExperimentResult,
     run_baseline_experiment,
 )
+from telemetryx.modeling.stage_evaluation import summarize_race_stages
 
 DEFAULT_CORPUS_PATH: Final[Path] = Path(
     "data/processed/corpora/telemetryx_race_corpus.parquet"
@@ -219,6 +218,28 @@ def print_experiment_result(
         )
         .to_string(index=False)
     )
+
+    stage_summary = summarize_race_stages(result.validation_evaluation.snapshots)
+
+    print()
+    print("Validation performance by race stage:")
+    print(
+        "Stage       Snapshots  Races  "
+        "LogLoss   Brier     Top-1    "
+        "WinnerProb  WinnerRank"
+    )
+
+    for row in stage_summary.itertuples(index=False):
+        print(
+            f"{row.RaceStage:<11}"
+            f"{row.SnapshotCount:>9}  "
+            f"{row.RaceCount:>5}  "
+            f"{row.MeanLogLoss:>7.4f}  "
+            f"{row.MeanBrierScore:>7.4f}  "
+            f"{row.TopOneAccuracy:>7.2%}  "
+            f"{row.MeanWinnerProbability:>10.2%}  "
+            f"{row.MeanWinnerRank:>10.2f}"
+        )
 
     print()
 
