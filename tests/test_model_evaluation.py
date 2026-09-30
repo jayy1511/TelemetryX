@@ -365,25 +365,25 @@ def test_actual_winner_rank_matches_probability_order() -> None:
     ]
 
 
-def test_probability_tie_receives_rank_one() -> None:
-    """A winner tied for highest probability should receive rank one."""
+def test_probability_tie_receives_rank_one_but_is_not_top_one() -> None:
+    """A tied winner may rank first without being a unique top prediction."""
     snapshots = make_evaluation().snapshots
 
     lap_three = snapshots.loc[snapshots["SnapshotLap"].eq(3)].iloc[0]
 
     assert lap_three[ACTUAL_WINNER_RANK_COLUMN] == 1
 
-    assert bool(lap_three[TOP_ONE_CORRECT_COLUMN]) is True
+    assert bool(lap_three[TOP_ONE_CORRECT_COLUMN]) is False
 
 
-def test_top_one_correct_matches_winner_rank() -> None:
-    """Top-one correctness should be true exactly when winner rank is one."""
+def test_top_one_correct_requires_unique_highest_probability() -> None:
+    """Top-one correctness requires the winner to be uniquely highest."""
     snapshots = make_evaluation().snapshots
 
     assert snapshots[TOP_ONE_CORRECT_COLUMN].tolist() == [
         True,
         False,
-        True,
+        False,
     ]
 
 
@@ -425,7 +425,7 @@ def test_summary_top_one_accuracy_matches_fixture() -> None:
     """Two of three snapshots rank the eventual winner first."""
     evaluation = make_evaluation()
 
-    assert evaluation.summary.top_one_accuracy == pytest.approx(2.0 / 3.0)
+    assert evaluation.summary.top_one_accuracy == pytest.approx(1.0 / 3.0)
 
 
 def test_summary_mean_winner_probability_matches_fixture() -> None:

@@ -9,6 +9,10 @@ from telemetryx.data.build_corpus import (
     RaceCorpusBuildError,
     load_race_corpus_artifact,
 )
+from telemetryx.modeling.benchmark_evaluation import (
+    build_validation_model_comparison,
+    evaluate_validation_benchmarks,
+)
 from telemetryx.modeling.experiment import (
     BaselineExperimentError,
     BaselineExperimentResult,
@@ -219,6 +223,32 @@ def print_experiment_result(
         .to_string(index=False)
     )
 
+    benchmarks = evaluate_validation_benchmarks(
+        result.split.train,
+        result.validation_features,
+    )
+
+    comparison = build_validation_model_comparison(
+        result.validation_evaluation,
+        benchmarks,
+    )
+
+    print()
+    print("Validation benchmark comparison:")
+    print(
+        "Model                Snapshots  Races  LogLoss   Brier     Top-1    WinnerProb"
+    )
+
+    for row in comparison.itertuples(index=False):
+        print(
+            f"{row.Model:<20}"
+            f"{row.Snapshots:>9}  "
+            f"{row.Races:>5}  "
+            f"{row.LogLoss:>7.4f}  "
+            f"{row.BrierScore:>7.4f}  "
+            f"{row.TopOneAccuracy:>7.2%}  "
+            f"{row.MeanWinnerProbability:>10.2%}"
+        )
     stage_summary = summarize_race_stages(result.validation_evaluation.snapshots)
 
     print()

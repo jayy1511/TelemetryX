@@ -7,6 +7,7 @@ from typing import Any
 import pandas as pd
 import pytest
 
+import telemetryx.modeling.run_experiment as run_experiment
 import telemetryx.modeling.run_experiment as runner_module
 from telemetryx.modeling.experiment import BaselineExperimentError
 from telemetryx.modeling.run_experiment import (
@@ -144,8 +145,52 @@ def make_fake_result() -> Any:
 
     return SimpleNamespace(
         summary=summary,
+        split=SimpleNamespace(train=pd.DataFrame()),
         validation_features=validation_features,
         validation_evaluation=evaluation,
+    )
+
+
+def make_fake_comparison() -> pd.DataFrame:
+    """Return deterministic benchmark rows for CLI report testing."""
+    return pd.DataFrame(
+        {
+            "Model": [
+                "Uniform",
+                "Driver prior",
+                "TelemetryX logistic",
+            ],
+            "Snapshots": [
+                306,
+                306,
+                306,
+            ],
+            "Races": [
+                5,
+                5,
+                5,
+            ],
+            "LogLoss": [
+                2.9838,
+                0.9991,
+                0.1147,
+            ],
+            "BrierScore": [
+                0.9494,
+                0.4305,
+                0.0610,
+            ],
+            "TopOneAccuracy": [
+                0.0,
+                1.0,
+                0.9706,
+            ],
+            "MeanWinnerProbability": [
+                0.0506,
+                0.3682,
+                0.9133,
+            ],
+        }
     )
 
 
@@ -458,8 +503,20 @@ def test_run_experiment_wraps_baseline_failure(
 
 def test_print_experiment_result_contains_summary(
     capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The CLI report should expose split sizes and validation metrics."""
+    monkeypatch.setattr(
+        run_experiment,
+        "evaluate_validation_benchmarks",
+        lambda training, validation: object(),
+    )
+
+    monkeypatch.setattr(
+        run_experiment,
+        "build_validation_model_comparison",
+        lambda evaluation, benchmarks: make_fake_comparison(),
+    )
     print_experiment_result(make_fake_result())
 
     output = capsys.readouterr().out
@@ -491,7 +548,19 @@ def test_print_experiment_result_contains_summary(
 
 def test_print_experiment_result_lists_validation_races(
     capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        run_experiment,
+        "evaluate_validation_benchmarks",
+        lambda training, validation: object(),
+    )
+
+    monkeypatch.setattr(
+        run_experiment,
+        "build_validation_model_comparison",
+        lambda evaluation, benchmarks: make_fake_comparison(),
+    )
     """The report should identify races used for model validation."""
     print_experiment_result(make_fake_result())
 

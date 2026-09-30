@@ -398,6 +398,20 @@ def _build_snapshot_evaluation(
         ascending=False,
     )
 
+    working["_TopProbabilityCount"] = (
+        working["_ProbabilityRank"]
+        .eq(1.0)
+        .groupby(
+            [
+                working["RaceId"],
+                working["SnapshotLap"],
+            ],
+            sort=False,
+            dropna=False,
+        )
+        .transform("sum")
+    )
+
     brier_scores = (
         working.groupby(
             [
@@ -427,8 +441,9 @@ def _build_snapshot_evaluation(
     winner_rows[SNAPSHOT_LOG_LOSS_COLUMN] = -np.log(clipped_winner_probabilities)
 
     winner_rows[TOP_ONE_CORRECT_COLUMN] = (
-        winner_rows["_ProbabilityRank"].eq(1.0).astype("boolean")
-    )
+        winner_rows["_ProbabilityRank"].eq(1.0)
+        & winner_rows["_TopProbabilityCount"].eq(1)
+    ).astype("boolean")
 
     winner_rows[ACTUAL_WINNER_RANK_COLUMN] = pd.to_numeric(
         winner_rows["_ProbabilityRank"],
