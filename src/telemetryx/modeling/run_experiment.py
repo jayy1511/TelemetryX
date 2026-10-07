@@ -9,6 +9,11 @@ from telemetryx.data.build_corpus import (
     RaceCorpusBuildError,
     load_race_corpus_artifact,
 )
+from telemetryx.modeling.ablation import (
+    AblationExperimentError,
+    DriverAblationResult,
+    run_driver_ablation,
+)
 from telemetryx.modeling.benchmark_evaluation import (
     build_validation_model_comparison,
     evaluate_validation_benchmarks,
@@ -103,6 +108,52 @@ def run_experiment_from_corpus(
     ) as exc:
         raise ExperimentRunnerError(
             "Failed to run the TelemetryX baseline experiment."
+        ) from exc
+
+
+def run_driver_ablation_from_corpus(
+    corpus_path: Path,
+    *,
+    validation_season: int = DEFAULT_VALIDATION_SEASON,
+    validation_last_races: int = DEFAULT_VALIDATION_LAST_RACES,
+    test_seasons: Sequence[int] = DEFAULT_TEST_SEASONS,
+    max_iterations: int = 2000,
+) -> DriverAblationResult:
+    """Load a processed corpus and run the Driver feature ablation."""
+    if not isinstance(
+        corpus_path,
+        Path,
+    ):
+        raise TypeError("corpus_path must be provided as a pathlib Path.")
+
+    try:
+        corpus = load_race_corpus_artifact(corpus_path)
+    except (
+        FileNotFoundError,
+        OSError,
+        TypeError,
+        ValueError,
+        RaceCorpusBuildError,
+    ) as exc:
+        raise ExperimentRunnerError(
+            "Failed to load the processed TelemetryX race corpus."
+        ) from exc
+
+    try:
+        return run_driver_ablation(
+            corpus,
+            validation_season=validation_season,
+            validation_last_races=validation_last_races,
+            test_seasons=test_seasons,
+            max_iterations=max_iterations,
+        )
+    except (
+        TypeError,
+        BaselineExperimentError,
+        AblationExperimentError,
+    ) as exc:
+        raise ExperimentRunnerError(
+            "Failed to run the TelemetryX Driver feature ablation."
         ) from exc
 
 
@@ -277,6 +328,28 @@ def print_experiment_result(
     print(result.validation_evaluation.snapshots.tail(10).to_string(index=False))
 
 
+def print_driver_ablation_result(
+    result: DriverAblationResult,
+) -> None:
+    """Print the validation comparison with and without Driver."""
+    comparison = result.comparison
+
+    print()
+    print("Driver feature ablation:")
+    print("Variant          Snapshots  Races  LogLoss   Brier     Top-1    WinnerProb")
+
+    for row in comparison.itertuples(index=False):
+        print(
+            f"{row.Variant:<16}"
+            f"{row.Snapshots:>9}  "
+            f"{row.Races:>5}  "
+            f"{row.LogLoss:>7.4f}  "
+            f"{row.BrierScore:>7.4f}  "
+            f"{row.TopOneAccuracy:>7.2%}  "
+            f"{row.MeanWinnerProbability:>10.2%}"
+        )
+
+
 def main(
     argv: Sequence[str] | None = None,
 ) -> None:
@@ -286,17 +359,18 @@ def main(
     args = parser.parse_args(argv)
 
     try:
-        result = run_experiment_from_corpus(
+        ablation_result = run_driver_ablation_from_corpus(
             args.corpus,
-            validation_season=(args.validation_season),
-            validation_last_races=(args.validation_last_races),
+            validation_season=args.validation_season,
+            validation_last_races=args.validation_last_races,
             test_seasons=args.test_seasons,
-            max_iterations=(args.max_iterations),
+            max_iterations=args.max_iterations,
         )
     except ExperimentRunnerError as exc:
         parser.error(str(exc))
 
-    print_experiment_result(result)
+    print_experiment_result(ablation_result.with_driver)
+    print_driver_ablation_result(ablation_result)
 
 
 def _parse_seasons(

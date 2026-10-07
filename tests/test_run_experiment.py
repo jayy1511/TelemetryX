@@ -574,8 +574,12 @@ def test_print_experiment_result_lists_validation_races(
 def test_main_forwards_command_line_configuration(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """main() should pass parsed arguments to the programmatic runner."""
-    expected_result = object()
+    """main() should pass parsed arguments to the ablation runner."""
+    expected_baseline_result = object()
+
+    expected_ablation_result = SimpleNamespace(
+        with_driver=expected_baseline_result,
+    )
 
     received_arguments: list[
         tuple[
@@ -584,7 +588,8 @@ def test_main_forwards_command_line_configuration(
         ]
     ] = []
 
-    printed_results: list[object] = []
+    printed_baseline_results: list[object] = []
+    printed_ablation_results: list[object] = []
 
     def fake_run(
         corpus_path: Path,
@@ -597,23 +602,24 @@ def test_main_forwards_command_line_configuration(
             )
         )
 
-        return expected_result
-
-    def fake_print(
-        result: Any,
-    ) -> None:
-        printed_results.append(result)
+        return expected_ablation_result
 
     monkeypatch.setattr(
         runner_module,
-        "run_experiment_from_corpus",
+        "run_driver_ablation_from_corpus",
         fake_run,
     )
 
     monkeypatch.setattr(
         runner_module,
         "print_experiment_result",
-        fake_print,
+        lambda result: printed_baseline_results.append(result),
+    )
+
+    monkeypatch.setattr(
+        runner_module,
+        "print_driver_ablation_result",
+        lambda result: printed_ablation_results.append(result),
     )
 
     main(
@@ -646,8 +652,12 @@ def test_main_forwards_command_line_configuration(
         )
     ]
 
-    assert printed_results == [
-        expected_result,
+    assert printed_baseline_results == [
+        expected_baseline_result,
+    ]
+
+    assert printed_ablation_results == [
+        expected_ablation_result,
     ]
 
 
@@ -655,7 +665,11 @@ def test_main_uses_default_configuration(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Running the CLI without arguments should use the MVP defaults."""
-    expected_result = object()
+    expected_baseline_result = object()
+
+    expected_ablation_result = SimpleNamespace(
+        with_driver=expected_baseline_result,
+    )
 
     received_arguments: list[
         tuple[
@@ -675,11 +689,11 @@ def test_main_uses_default_configuration(
             )
         )
 
-        return expected_result
+        return expected_ablation_result
 
     monkeypatch.setattr(
         runner_module,
-        "run_experiment_from_corpus",
+        "run_driver_ablation_from_corpus",
         fake_run,
     )
 
@@ -689,15 +703,21 @@ def test_main_uses_default_configuration(
         lambda result: None,
     )
 
+    monkeypatch.setattr(
+        runner_module,
+        "print_driver_ablation_result",
+        lambda result: None,
+    )
+
     main([])
 
     assert received_arguments == [
         (
             DEFAULT_CORPUS_PATH,
             {
-                "validation_season": (DEFAULT_VALIDATION_SEASON),
-                "validation_last_races": (DEFAULT_VALIDATION_LAST_RACES),
-                "test_seasons": (DEFAULT_TEST_SEASONS),
+                "validation_season": DEFAULT_VALIDATION_SEASON,
+                "validation_last_races": DEFAULT_VALIDATION_LAST_RACES,
+                "test_seasons": DEFAULT_TEST_SEASONS,
                 "max_iterations": 2000,
             },
         )
