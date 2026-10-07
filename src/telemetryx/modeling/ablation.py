@@ -10,6 +10,7 @@ from telemetryx.modeling.experiment import (
     BaselineExperimentResult,
     run_baseline_experiment,
 )
+from telemetryx.modeling.stage_evaluation import summarize_race_stages
 
 DRIVER_FEATURE_COLUMN = "Driver"
 
@@ -109,6 +110,71 @@ def _build_driver_ablation_comparison(
         )
 
     return pd.DataFrame(rows)
+
+
+def build_driver_ablation_stage_comparison(
+    result: DriverAblationResult,
+) -> pd.DataFrame:
+    """Compare Driver ablation performance across race stages."""
+    with_driver_summary = summarize_race_stages(
+        result.with_driver.validation_evaluation.snapshots
+    )
+
+    without_driver_summary = summarize_race_stages(
+        result.without_driver.validation_evaluation.snapshots
+    )
+
+    _validate_comparable_stage_summaries(
+        with_driver_summary,
+        without_driver_summary,
+    )
+
+    frames: list[pd.DataFrame] = []
+
+    for variant, summary in (
+        ("With Driver", with_driver_summary),
+        ("Without Driver", without_driver_summary),
+    ):
+        variant_summary = summary.copy(deep=True)
+        variant_summary.insert(
+            0,
+            "Variant",
+            variant,
+        )
+        frames.append(variant_summary)
+
+    return pd.concat(
+        frames,
+        ignore_index=True,
+    )
+
+
+def _validate_comparable_stage_summaries(
+    with_driver: pd.DataFrame,
+    without_driver: pd.DataFrame,
+) -> None:
+    """Require both ablation variants to summarize identical race stages."""
+    comparison_columns = [
+        "RaceStage",
+        "SnapshotCount",
+        "RaceCount",
+    ]
+
+    with_structure = with_driver.loc[
+        :,
+        comparison_columns,
+    ].reset_index(drop=True)
+
+    without_structure = without_driver.loc[
+        :,
+        comparison_columns,
+    ].reset_index(drop=True)
+
+    if not with_structure.equals(without_structure):
+        raise AblationExperimentError(
+            "Driver ablation stage summaries must represent "
+            "identical validation stages."
+        )
 
 
 def _validate_comparable_experiments(

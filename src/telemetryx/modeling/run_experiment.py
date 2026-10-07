@@ -12,6 +12,7 @@ from telemetryx.data.build_corpus import (
 from telemetryx.modeling.ablation import (
     AblationExperimentError,
     DriverAblationResult,
+    build_driver_ablation_stage_comparison,
     run_driver_ablation,
 )
 from telemetryx.modeling.benchmark_evaluation import (
@@ -347,6 +348,28 @@ def print_driver_ablation_result(
             f"{row.BrierScore:>7.4f}  "
             f"{row.TopOneAccuracy:>7.2%}  "
             f"{row.MeanWinnerProbability:>10.2%}"
+        )
+
+    stage_comparison = build_driver_ablation_stage_comparison(result)
+
+    print()
+    print("Driver ablation by race stage:")
+    print(
+        "Variant          Stage       Snapshots  Races  "
+        "LogLoss   Brier     Top-1    WinnerProb  WinnerRank"
+    )
+
+    for row in stage_comparison.itertuples(index=False):
+        print(
+            f"{row.Variant:<16}"
+            f"{row.RaceStage:<12}"
+            f"{row.SnapshotCount:>9}  "
+            f"{row.RaceCount:>5}  "
+            f"{row.MeanLogLoss:>7.4f}  "
+            f"{row.MeanBrierScore:>7.4f}  "
+            f"{row.TopOneAccuracy:>7.2%}  "
+            f"{row.MeanWinnerProbability:>10.2%}  "
+            f"{row.MeanWinnerRank:>10.2f}"
         )
 
 

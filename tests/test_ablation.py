@@ -12,11 +12,7 @@ from telemetryx.modeling.ablation import (
     DRIVER_FEATURE_COLUMN,
     NO_DRIVER_MODEL_COLUMNS,
     AblationExperimentError,
-    run_driver_ablation,
-)
-from telemetryx.modeling.ablation import (
-    AblationExperimentError,
-    DriverAblationResult,
+    build_driver_ablation_stage_comparison,
     run_driver_ablation,
 )
 
@@ -53,6 +49,50 @@ def make_fake_experiment(
 
     return SimpleNamespace(
         validation_evaluation=evaluation,
+    )
+
+
+def make_stage_summary(
+    *,
+    log_losses: tuple[float, float, float],
+    top_one_accuracies: tuple[float, float, float],
+) -> pd.DataFrame:
+    """Create a deterministic Early/Middle/Late stage summary."""
+    return pd.DataFrame(
+        {
+            "RaceStage": [
+                "Early",
+                "Middle",
+                "Late",
+            ],
+            "SnapshotCount": [
+                99,
+                103,
+                104,
+            ],
+            "RaceCount": [
+                5,
+                5,
+                5,
+            ],
+            "MeanLogLoss": list(log_losses),
+            "MeanBrierScore": [
+                0.10,
+                0.20,
+                0.05,
+            ],
+            "TopOneAccuracy": list(top_one_accuracies),
+            "MeanWinnerProbability": [
+                0.70,
+                0.75,
+                0.90,
+            ],
+            "MeanWinnerRank": [
+                1.10,
+                1.20,
+                1.00,
+            ],
+        }
     )
 
 
@@ -352,3 +392,186 @@ def test_snapshot_order_does_not_affect_comparability(
     )
 
     assert len(result.comparison) == 2
+
+
+def test_stage_comparison_contains_both_ablation_variants(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Stage comparison should expose both model variants."""
+    with_driver = make_fake_experiment(
+        log_loss=0.10,
+        brier_score=0.05,
+        top_one_accuracy=0.95,
+        winner_probability=0.90,
+    )
+
+    without_driver = make_fake_experiment(
+        log_loss=0.30,
+        brier_score=0.20,
+        top_one_accuracy=0.75,
+        winner_probability=0.65,
+    )
+
+    result = ablation.DriverAblationResult(
+        with_driver=with_driver,
+        without_driver=without_driver,
+        comparison=pd.DataFrame(),
+    )
+
+    summaries = iter(
+        [
+            make_stage_summary(
+                log_losses=(0.10, 0.20, 0.05),
+                top_one_accuracies=(0.95, 0.90, 1.00),
+            ),
+            make_stage_summary(
+                log_losses=(0.80, 1.10, 0.40),
+                top_one_accuracies=(0.70, 0.65, 0.90),
+            ),
+        ]
+    )
+
+    monkeypatch.setattr(
+        ablation,
+        "summarize_race_stages",
+        lambda snapshots: next(summaries),
+    )
+
+    comparison = build_driver_ablation_stage_comparison(result)
+
+    assert comparison["Variant"].tolist() == [
+        "With Driver",
+        "With Driver",
+        "With Driver",
+        "Without Driver",
+        "Without Driver",
+        "Without Driver",
+    ]
+
+    assert comparison["RaceStage"].tolist() == [
+        "Early",
+        "Middle",
+        "Late",
+        "Early",
+        "Middle",
+        "Late",
+    ]
+
+
+def test_stage_comparison_preserves_stage_metrics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Stage metrics should remain associated with their model variant."""
+    fake_experiment = make_fake_experiment(
+        log_loss=0.10,
+        brier_score=0.05,
+        top_one_accuracy=0.95,
+        winner_probability=0.90,
+    )
+
+    result = ablation.DriverAblationResult(
+        with_driver=fake_experiment,
+        without_driver=fake_experiment,
+        comparison=pd.DataFrame(),
+    )
+
+    with_summary = make_stage_summary(
+        log_losses=(0.11, 0.22, 0.03),
+        top_one_accuracies=(0.91, 0.82, 0.99),
+    )
+
+    without_summary = make_stage_summary(
+        log_losses=(1.20, 1.00, 0.60),
+        top_one_accuracies=(0.60, 0.70, 0.85),
+    )
+
+    summaries = iter(
+        [
+            with_summary,
+            without_summary,
+        ]
+    )
+
+    monkeypatch.setattr(
+        ablation,
+        "summarize_race_stages",
+        lambda snapshots: next(summaries),
+    )
+
+    comparison = build_driver_ablation_stage_comparison(result)
+
+    with_rows = comparison.loc[comparison["Variant"].eq("With Driver")].reset_index(
+        drop=True
+    )
+
+    without_rows = comparison.loc[
+        comparison["Variant"].eq("Without Driver")
+    ].reset_index(drop=True)
+
+    assert with_rows["MeanLogLoss"].tolist() == pytest.approx(
+        [
+            0.11,
+            0.22,
+            0.03,
+        ]
+    )
+
+    assert without_rows["MeanLogLoss"].tolist() == pytest.approx(
+        [
+            1.20,
+            1.00,
+            0.60,
+        ]
+    )
+
+
+def test_stage_comparison_rejects_mismatched_stage_structure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Both variants must represent identical validation stages."""
+    fake_experiment = make_fake_experiment(
+        log_loss=0.10,
+        brier_score=0.05,
+        top_one_accuracy=0.95,
+        winner_probability=0.90,
+    )
+
+    result = ablation.DriverAblationResult(
+        with_driver=fake_experiment,
+        without_driver=fake_experiment,
+        comparison=pd.DataFrame(),
+    )
+
+    with_summary = make_stage_summary(
+        log_losses=(0.10, 0.20, 0.05),
+        top_one_accuracies=(0.95, 0.90, 1.00),
+    )
+
+    without_summary = make_stage_summary(
+        log_losses=(0.80, 1.10, 0.40),
+        top_one_accuracies=(0.70, 0.65, 0.90),
+    )
+
+    without_summary.loc[
+        without_summary["RaceStage"].eq("Early"),
+        "SnapshotCount",
+    ] = 98
+
+    summaries = iter(
+        [
+            with_summary,
+            without_summary,
+        ]
+    )
+
+    monkeypatch.setattr(
+        ablation,
+        "summarize_race_stages",
+        lambda snapshots: next(summaries),
+    )
+
+    with pytest.raises(
+        AblationExperimentError,
+        match="must represent identical validation stages",
+    ):
+        build_driver_ablation_stage_comparison(result)
