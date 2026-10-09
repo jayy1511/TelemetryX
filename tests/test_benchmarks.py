@@ -4,7 +4,9 @@ import pandas as pd
 import pytest
 
 from telemetryx.modeling.benchmarks import (
+    DEFAULT_LEADER_PROBABILITY,
     BenchmarkPredictionError,
+    predict_current_leader_winner_probabilities,
     predict_driver_prior_winner_probabilities,
     predict_uniform_winner_probabilities,
 )
@@ -114,6 +116,381 @@ def test_uniform_predictions_are_equal_within_snapshot() -> None:
             0.5,
         ]
     )
+
+
+def test_current_leader_assigns_fixed_probability_to_leader() -> None:
+    """The current leader should receive the configured probability mass."""
+    features = pd.DataFrame(
+        {
+            "RaceId": [
+                "race_1",
+                "race_1",
+                "race_1",
+            ],
+            "SnapshotLap": [
+                10,
+                10,
+                10,
+            ],
+            "Driver": [
+                "VER",
+                "NOR",
+                "LEC",
+            ],
+            "IsLeader": pd.Series(
+                [
+                    True,
+                    False,
+                    False,
+                ],
+                dtype="boolean",
+            ),
+        }
+    )
+
+    predictions = predict_current_leader_winner_probabilities(features)
+
+    assert predictions["WinnerProbability"].tolist() == pytest.approx(
+        [
+            0.50,
+            0.25,
+            0.25,
+        ]
+    )
+
+
+def test_current_leader_probabilities_sum_to_one_per_snapshot() -> None:
+    """Each leader-benchmark snapshot must remain a probability distribution."""
+    features = pd.DataFrame(
+        {
+            "RaceId": [
+                "race_1",
+                "race_1",
+                "race_1",
+                "race_2",
+                "race_2",
+            ],
+            "SnapshotLap": [
+                5,
+                5,
+                5,
+                12,
+                12,
+            ],
+            "Driver": [
+                "VER",
+                "NOR",
+                "LEC",
+                "PIA",
+                "HAM",
+            ],
+            "IsLeader": pd.Series(
+                [
+                    False,
+                    True,
+                    False,
+                    True,
+                    False,
+                ],
+                dtype="boolean",
+            ),
+        }
+    )
+
+    predictions = predict_current_leader_winner_probabilities(features)
+
+    totals = predictions.groupby(
+        [
+            "RaceId",
+            "SnapshotLap",
+        ]
+    )["WinnerProbability"].sum()
+
+    assert totals.tolist() == pytest.approx(
+        [
+            1.0,
+            1.0,
+        ]
+    )
+
+
+def test_current_leader_prediction_schema_matches_other_benchmarks() -> None:
+    """Leader predictions should expose only identity keys and probability."""
+    features = pd.DataFrame(
+        {
+            "RaceId": [
+                "race_1",
+                "race_1",
+            ],
+            "SnapshotLap": [
+                1,
+                1,
+            ],
+            "Driver": [
+                "VER",
+                "NOR",
+            ],
+            "IsLeader": pd.Series(
+                [
+                    True,
+                    False,
+                ],
+                dtype="boolean",
+            ),
+        }
+    )
+
+    predictions = predict_current_leader_winner_probabilities(features)
+
+    assert predictions.columns.tolist() == [
+        "RaceId",
+        "SnapshotLap",
+        "Driver",
+        "WinnerProbability",
+    ]
+
+
+def test_current_leader_benchmark_does_not_modify_features() -> None:
+    """Benchmark prediction must leave the source feature frame unchanged."""
+    features = pd.DataFrame(
+        {
+            "RaceId": [
+                "race_1",
+                "race_1",
+            ],
+            "SnapshotLap": [
+                1,
+                1,
+            ],
+            "Driver": [
+                "VER",
+                "NOR",
+            ],
+            "IsLeader": pd.Series(
+                [
+                    True,
+                    False,
+                ],
+                dtype="boolean",
+            ),
+        }
+    )
+
+    original = features.copy(deep=True)
+
+    predict_current_leader_winner_probabilities(features)
+
+    pd.testing.assert_frame_equal(
+        features,
+        original,
+    )
+
+
+def test_current_leader_supports_custom_probability() -> None:
+    """Configured leader mass should be shared correctly."""
+    features = pd.DataFrame(
+        {
+            "RaceId": [
+                "race_1",
+                "race_1",
+                "race_1",
+            ],
+            "SnapshotLap": [
+                1,
+                1,
+                1,
+            ],
+            "Driver": [
+                "VER",
+                "NOR",
+                "LEC",
+            ],
+            "IsLeader": pd.Series(
+                [
+                    True,
+                    False,
+                    False,
+                ],
+                dtype="boolean",
+            ),
+        }
+    )
+
+    predictions = predict_current_leader_winner_probabilities(
+        features,
+        leader_probability=0.60,
+    )
+
+    assert predictions["WinnerProbability"].tolist() == pytest.approx(
+        [
+            0.60,
+            0.20,
+            0.20,
+        ]
+    )
+
+
+def test_current_leader_default_probability_is_fixed() -> None:
+    """The benchmark default should remain an explicit untuned constant."""
+    assert DEFAULT_LEADER_PROBABILITY == pytest.approx(0.5)
+
+
+@pytest.mark.parametrize(
+    "leader_probability",
+    [
+        0.0,
+        1.0,
+        -0.1,
+        1.1,
+    ],
+)
+def test_current_leader_rejects_invalid_probability(
+    leader_probability: float,
+) -> None:
+    """Leader probability must stay strictly inside the unit interval."""
+    features = pd.DataFrame(
+        {
+            "RaceId": ["race_1", "race_1"],
+            "SnapshotLap": [1, 1],
+            "Driver": ["VER", "NOR"],
+            "IsLeader": pd.Series(
+                [True, False],
+                dtype="boolean",
+            ),
+        }
+    )
+
+    with pytest.raises(
+        BenchmarkPredictionError,
+        match="strictly between zero and one",
+    ):
+        predict_current_leader_winner_probabilities(
+            features,
+            leader_probability=leader_probability,
+        )
+
+
+def test_current_leader_rejects_boolean_probability() -> None:
+    """Booleans should not be accepted as numeric benchmark settings."""
+    features = pd.DataFrame(
+        {
+            "RaceId": ["race_1", "race_1"],
+            "SnapshotLap": [1, 1],
+            "Driver": ["VER", "NOR"],
+            "IsLeader": [True, False],
+        }
+    )
+
+    with pytest.raises(
+        TypeError,
+        match="leader_probability must be a number",
+    ):
+        predict_current_leader_winner_probabilities(
+            features,
+            leader_probability=True,
+        )
+
+
+def test_current_leader_requires_is_leader_column() -> None:
+    """The heuristic cannot run without current-leader information."""
+    features = pd.DataFrame(
+        {
+            "RaceId": ["race_1", "race_1"],
+            "SnapshotLap": [1, 1],
+            "Driver": ["VER", "NOR"],
+        }
+    )
+
+    with pytest.raises(
+        BenchmarkPredictionError,
+        match="missing required columns",
+    ):
+        predict_current_leader_winner_probabilities(features)
+
+
+def test_current_leader_rejects_missing_leader_value() -> None:
+    """IsLeader must be known for every prediction row."""
+    features = pd.DataFrame(
+        {
+            "RaceId": ["race_1", "race_1"],
+            "SnapshotLap": [1, 1],
+            "Driver": ["VER", "NOR"],
+            "IsLeader": pd.Series(
+                [
+                    True,
+                    pd.NA,
+                ],
+                dtype="boolean",
+            ),
+        }
+    )
+
+    with pytest.raises(
+        BenchmarkPredictionError,
+        match="cannot contain missing values",
+    ):
+        predict_current_leader_winner_probabilities(features)
+
+
+@pytest.mark.parametrize(
+    "leader_values",
+    [
+        [False, False, False],
+        [True, True, False],
+    ],
+)
+def test_current_leader_requires_exactly_one_leader(
+    leader_values: list[bool],
+) -> None:
+    """Each temporal snapshot must identify one and only one leader."""
+    features = pd.DataFrame(
+        {
+            "RaceId": [
+                "race_1",
+                "race_1",
+                "race_1",
+            ],
+            "SnapshotLap": [
+                1,
+                1,
+                1,
+            ],
+            "Driver": [
+                "VER",
+                "NOR",
+                "LEC",
+            ],
+            "IsLeader": pd.Series(
+                leader_values,
+                dtype="boolean",
+            ),
+        }
+    )
+
+    with pytest.raises(
+        BenchmarkPredictionError,
+        match="exactly one current leader",
+    ):
+        predict_current_leader_winner_probabilities(features)
+
+
+def test_current_leader_single_driver_snapshot_gets_probability_one() -> None:
+    """A one-driver snapshot should remain a valid probability distribution."""
+    features = pd.DataFrame(
+        {
+            "RaceId": ["race_1"],
+            "SnapshotLap": [1],
+            "Driver": ["VER"],
+            "IsLeader": pd.Series(
+                [True],
+                dtype="boolean",
+            ),
+        }
+    )
+
+    predictions = predict_current_leader_winner_probabilities(features)
+
+    assert predictions["WinnerProbability"].tolist() == pytest.approx([1.0])
 
 
 def test_uniform_predictions_sum_to_one_per_snapshot() -> None:

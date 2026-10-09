@@ -24,6 +24,15 @@ DRIVER_PRIOR_TRAIN_COLUMNS: Final[tuple[str, ...]] = (
 
 DEFAULT_PRIOR_SMOOTHING: Final[float] = 1.0
 
+CURRENT_LEADER_COLUMN: Final[str] = "IsLeader"
+
+CURRENT_LEADER_REQUIRED_COLUMNS: Final[tuple[str, ...]] = (
+    *PREDICTION_KEY_COLUMNS,
+    CURRENT_LEADER_COLUMN,
+)
+
+DEFAULT_LEADER_PROBABILITY: Final[float] = 0.5
+
 
 class BenchmarkPredictionError(ValueError):
     """Raised when a benchmark prediction cannot be constructed."""
@@ -63,6 +72,113 @@ def predict_uniform_winner_probabilities(
         )
 
     predictions[WINNER_PROBABILITY_COLUMN] = (1.0 / field_size).astype("Float64")
+
+    _validate_prediction_probabilities(predictions)
+
+    return predictions
+
+
+def predict_current_leader_winner_probabilities(
+    features: pd.DataFrame,
+    *,
+    leader_probability: float = DEFAULT_LEADER_PROBABILITY,
+) -> pd.DataFrame:
+    """
+    Predict race winners using only the current snapshot leader.
+
+    The current leader receives a fixed probability mass. All remaining
+    probability mass is distributed equally across the other drivers.
+    """
+    _validate_prediction_features(features)
+
+    missing_columns = [
+        column
+        for column in CURRENT_LEADER_REQUIRED_COLUMNS
+        if column not in features.columns
+    ]
+
+    if missing_columns:
+        raise BenchmarkPredictionError(
+            f"Current-leader benchmark is missing required columns: {missing_columns}."
+        )
+
+    if isinstance(leader_probability, bool) or not isinstance(
+        leader_probability,
+        int | float,
+    ):
+        raise TypeError("leader_probability must be a number between zero and one.")
+
+    leader_probability_value = float(leader_probability)
+
+    if not 0.0 < leader_probability_value < 1.0:
+        raise BenchmarkPredictionError(
+            "leader_probability must be strictly between zero and one."
+        )
+
+    predictions = features.loc[
+        :,
+        [
+            *PREDICTION_KEY_COLUMNS,
+            CURRENT_LEADER_COLUMN,
+        ],
+    ].copy(deep=True)
+
+    leaders = predictions[CURRENT_LEADER_COLUMN].astype("boolean")
+
+    if bool(leaders.isna().any()):
+        raise BenchmarkPredictionError("IsLeader cannot contain missing values.")
+
+    predictions["_IsLeader"] = leaders
+
+    snapshot_group = predictions.groupby(
+        [
+            "RaceId",
+            "SnapshotLap",
+        ],
+        sort=False,
+        dropna=False,
+    )
+
+    leader_count = snapshot_group["_IsLeader"].transform("sum").astype("Int64")
+
+    if bool(leader_count.ne(1).any()):
+        raise BenchmarkPredictionError(
+            "Every snapshot must contain exactly one current leader."
+        )
+
+    field_size = snapshot_group["Driver"].transform("size").astype("Int64")
+
+    probabilities = pd.Series(
+        index=predictions.index,
+        dtype="Float64",
+    )
+
+    single_driver_snapshot = field_size.eq(1)
+
+    probabilities.loc[single_driver_snapshot] = 1.0
+
+    multi_driver_snapshot = ~single_driver_snapshot
+
+    non_leader_probability = (1.0 - leader_probability_value) / (
+        field_size.astype("Float64") - 1.0
+    )
+
+    probabilities.loc[multi_driver_snapshot & predictions["_IsLeader"]] = (
+        leader_probability_value
+    )
+
+    probabilities.loc[multi_driver_snapshot & ~predictions["_IsLeader"]] = (
+        non_leader_probability.loc[multi_driver_snapshot & ~predictions["_IsLeader"]]
+    )
+
+    predictions[WINNER_PROBABILITY_COLUMN] = probabilities
+
+    predictions = predictions.drop(
+        columns=[
+            CURRENT_LEADER_COLUMN,
+            "_IsLeader",
+        ]
+    )
 
     _validate_prediction_probabilities(predictions)
 
