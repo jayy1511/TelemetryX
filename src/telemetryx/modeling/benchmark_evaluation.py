@@ -6,6 +6,7 @@ import pandas as pd
 
 from telemetryx.modeling.benchmarks import (
     BenchmarkPredictionError,
+    predict_current_leader_winner_probabilities,
     predict_driver_prior_winner_probabilities,
     predict_uniform_winner_probabilities,
 )
@@ -28,6 +29,8 @@ class ValidationBenchmarkResult:
     uniform_evaluation: WinnerModelEvaluation
     driver_prior_predictions: pd.DataFrame
     driver_prior_evaluation: WinnerModelEvaluation
+    current_leader_predictions: pd.DataFrame
+    current_leader_evaluation: WinnerModelEvaluation
 
 
 def evaluate_validation_benchmarks(
@@ -74,6 +77,14 @@ def evaluate_validation_benchmarks(
             validation_features,
             driver_prior_predictions,
         )
+        current_leader_predictions = predict_current_leader_winner_probabilities(
+            validation_features
+        )
+
+        current_leader_evaluation = evaluate_winner_probabilities(
+            validation_features,
+            current_leader_predictions,
+        )
 
     except (
         BenchmarkPredictionError,
@@ -88,6 +99,8 @@ def evaluate_validation_benchmarks(
         uniform_evaluation=uniform_evaluation,
         driver_prior_predictions=driver_prior_predictions,
         driver_prior_evaluation=driver_prior_evaluation,
+        current_leader_predictions=current_leader_predictions,
+        current_leader_evaluation=current_leader_evaluation,
     )
 
 
@@ -109,18 +122,10 @@ def build_validation_model_comparison(
         raise TypeError("benchmarks must be a ValidationBenchmarkResult.")
 
     evaluations = (
-        (
-            "Uniform",
-            benchmarks.uniform_evaluation,
-        ),
-        (
-            "Driver prior",
-            benchmarks.driver_prior_evaluation,
-        ),
-        (
-            "TelemetryX logistic",
-            baseline_evaluation,
-        ),
+        ("Uniform", benchmarks.uniform_evaluation),
+        ("Driver prior", benchmarks.driver_prior_evaluation),
+        ("Current leader", benchmarks.current_leader_evaluation),
+        ("TelemetryX logistic", baseline_evaluation),
     )
 
     rows: list[dict[str, object]] = []

@@ -10,7 +10,9 @@ from telemetryx.modeling.benchmark_evaluation import (
     build_validation_model_comparison,
     evaluate_validation_benchmarks,
 )
-from telemetryx.modeling.benchmarks import BenchmarkPredictionError
+from telemetryx.modeling.benchmarks import (
+    BenchmarkPredictionError,
+)
 from telemetryx.modeling.evaluation import (
     EvaluationSummary,
     ModelEvaluationError,
@@ -80,6 +82,7 @@ def make_benchmark_result() -> ValidationBenchmarkResult:
     )
 
     driver_prior_predictions = uniform_predictions.copy(deep=True)
+    current_leader_predictions = uniform_predictions.copy(deep=True)
 
     return ValidationBenchmarkResult(
         uniform_predictions=uniform_predictions,
@@ -95,6 +98,13 @@ def make_benchmark_result() -> ValidationBenchmarkResult:
             mean_brier_score=0.4,
             top_one_accuracy=0.5,
             mean_winner_probability=0.6,
+        ),
+        current_leader_predictions=current_leader_predictions,
+        current_leader_evaluation=make_evaluation(
+            mean_log_loss=0.5,
+            mean_brier_score=0.2,
+            top_one_accuracy=0.8,
+            mean_winner_probability=0.7,
         ),
     )
 
@@ -135,8 +145,23 @@ def test_evaluate_validation_benchmarks_uses_validation_for_uniform(
         }
     )
 
+    leader_predictions = pd.DataFrame(
+        {
+            "kind": [
+                "leader",
+            ]
+        }
+    )
+
     uniform_evaluation = make_evaluation()
     prior_evaluation = make_evaluation()
+    leader_evaluation = make_evaluation()
+
+    def fake_leader_predictor(
+        features: pd.DataFrame,
+    ) -> pd.DataFrame:
+        assert features is validation
+        return leader_predictions
 
     def fake_uniform_predictor(
         features: pd.DataFrame,
@@ -173,12 +198,24 @@ def test_evaluate_validation_benchmarks_uses_validation_for_uniform(
         if predictions is uniform_predictions:
             return uniform_evaluation
 
-        return prior_evaluation
+        if predictions is prior_predictions:
+            return prior_evaluation
+
+        if predictions is leader_predictions:
+            return leader_evaluation
+
+        raise AssertionError("Unexpected prediction frame.")
 
     monkeypatch.setattr(
         benchmark_evaluation,
         "predict_uniform_winner_probabilities",
         fake_uniform_predictor,
+    )
+
+    monkeypatch.setattr(
+        benchmark_evaluation,
+        "predict_current_leader_winner_probabilities",
+        fake_leader_predictor,
     )
 
     monkeypatch.setattr(
@@ -202,6 +239,8 @@ def test_evaluate_validation_benchmarks_uses_validation_for_uniform(
     assert result.driver_prior_predictions is prior_predictions
     assert result.uniform_evaluation is uniform_evaluation
     assert result.driver_prior_evaluation is prior_evaluation
+    assert result.current_leader_predictions is leader_predictions
+    assert result.current_leader_evaluation is leader_evaluation
 
     assert evaluations == [
         (
@@ -211,6 +250,10 @@ def test_evaluate_validation_benchmarks_uses_validation_for_uniform(
         (
             validation,
             prior_predictions,
+        ),
+        (
+            validation,
+            leader_predictions,
         ),
     ]
 
@@ -286,6 +329,18 @@ def test_evaluate_validation_benchmarks_does_not_accept_test_partition(
         "predict_driver_prior_winner_probabilities",
         fake_prior_predictor,
     )
+
+    monkeypatch.setattr(
+            benchmark_evaluation,
+            "predict_current_leader_winner_probabilities",
+            lambda features: pd.DataFrame(
+                {
+                    "prediction": [
+                        3,
+                    ]
+                }
+            ),
+        )
 
     monkeypatch.setattr(
         benchmark_evaluation,
@@ -444,6 +499,7 @@ def test_model_comparison_contains_all_three_models() -> None:
     assert comparison["Model"].tolist() == [
         "Uniform",
         "Driver prior",
+        "Current leader",
         "TelemetryX logistic",
     ]
 
