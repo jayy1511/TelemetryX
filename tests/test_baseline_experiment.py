@@ -1,5 +1,3 @@
-"""Tests for the end-to-end TelemetryX baseline experiment."""
-
 from __future__ import annotations
 
 from typing import Any

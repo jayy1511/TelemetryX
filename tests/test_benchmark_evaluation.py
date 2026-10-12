@@ -331,16 +331,16 @@ def test_evaluate_validation_benchmarks_does_not_accept_test_partition(
     )
 
     monkeypatch.setattr(
-            benchmark_evaluation,
-            "predict_current_leader_winner_probabilities",
-            lambda features: pd.DataFrame(
-                {
-                    "prediction": [
-                        3,
-                    ]
-                }
-            ),
-        )
+        benchmark_evaluation,
+        "predict_current_leader_winner_probabilities",
+        lambda features: pd.DataFrame(
+            {
+                "prediction": [
+                    3,
+                ]
+            }
+        ),
+    )
 
     monkeypatch.setattr(
         benchmark_evaluation,
@@ -482,7 +482,7 @@ def test_evaluate_validation_benchmarks_rejects_non_dataframe_validation() -> No
         )
 
 
-def test_model_comparison_contains_all_three_models() -> None:
+def test_model_comparison_contains_all_models() -> None:
     """Comparison should include both benchmarks and TelemetryX."""
     baseline = make_evaluation(
         mean_log_loss=0.1,

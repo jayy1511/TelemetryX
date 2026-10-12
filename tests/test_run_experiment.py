@@ -546,6 +546,93 @@ def test_print_experiment_result_contains_summary(
     assert "Mean actual-winner probability: 91.33%" in output
 
 
+def test_print_race_stage_diagnostics_prints_summary(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Race-stage diagnostics should be printed in a readable table."""
+    snapshots = pd.DataFrame(
+        {
+            "placeholder": [
+                1,
+            ]
+        }
+    )
+
+    result = SimpleNamespace(
+        validation_evaluation=SimpleNamespace(
+            snapshots=snapshots,
+        )
+    )
+
+    summary = pd.DataFrame(
+        {
+            "RaceId": [
+                "2023_18_united_states_grand_prix",
+                "2023_18_united_states_grand_prix",
+            ],
+            "RaceStage": [
+                "Early",
+                "Middle",
+            ],
+            "SnapshotCount": [
+                20,
+                21,
+            ],
+            "MeanLogLoss": [
+                0.10,
+                0.25,
+            ],
+            "MeanBrierScore": [
+                0.05,
+                0.12,
+            ],
+            "TopOneAccuracy": [
+                1.0,
+                0.90,
+            ],
+            "MeanWinnerProbability": [
+                0.92,
+                0.81,
+            ],
+            "MeanWinnerRank": [
+                1.0,
+                1.1,
+            ],
+        }
+    )
+
+    received_snapshots: list[pd.DataFrame] = []
+
+    def fake_summary(
+        frame: pd.DataFrame,
+    ) -> pd.DataFrame:
+        received_snapshots.append(frame)
+        return summary
+
+    monkeypatch.setattr(
+        runner_module,
+        "summarize_race_stage_performance",
+        fake_summary,
+    )
+
+    runner_module.print_race_stage_diagnostics(result)
+
+    output = capsys.readouterr().out
+
+    assert len(received_snapshots) == 1
+    assert received_snapshots[0] is snapshots
+
+    assert "Validation race-stage diagnostics:" in output
+    assert "2023_18_united_states_grand_prix" in output
+    assert "Early" in output
+    assert "Middle" in output
+    assert "0.1000" in output
+    assert "0.2500" in output
+    assert "100.00%" in output
+    assert "90.00%" in output
+
+
 def test_print_experiment_result_lists_validation_races(
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
@@ -620,6 +707,11 @@ def test_main_forwards_command_line_configuration(
         runner_module,
         "print_driver_ablation_result",
         lambda result: printed_ablation_results.append(result),
+    )
+    monkeypatch.setattr(
+        runner_module,
+        "print_race_stage_diagnostics",
+        lambda result: None,
     )
 
     main(
@@ -706,6 +798,11 @@ def test_main_uses_default_configuration(
     monkeypatch.setattr(
         runner_module,
         "print_driver_ablation_result",
+        lambda result: None,
+    )
+    monkeypatch.setattr(
+        runner_module,
+        "print_race_stage_diagnostics",
         lambda result: None,
     )
 

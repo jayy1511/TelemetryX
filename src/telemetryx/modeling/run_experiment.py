@@ -19,6 +19,9 @@ from telemetryx.modeling.benchmark_evaluation import (
     build_validation_model_comparison,
     evaluate_validation_benchmarks,
 )
+from telemetryx.modeling.diagnostics import (
+    summarize_race_stage_performance,
+)
 from telemetryx.modeling.experiment import (
     BaselineExperimentError,
     BaselineExperimentResult,
@@ -373,6 +376,34 @@ def print_driver_ablation_result(
         )
 
 
+def print_race_stage_diagnostics(
+    result: BaselineExperimentResult,
+) -> None:
+    """Print validation metrics for each race and race stage."""
+    diagnostics = summarize_race_stage_performance(
+        result.validation_evaluation.snapshots
+    )
+
+    print()
+    print("Validation race-stage diagnostics:")
+    print(
+        "RaceId                               Stage    Snapshots  "
+        "LogLoss   Brier     Top-1    WinnerProb  WinnerRank"
+    )
+
+    for row in diagnostics.itertuples(index=False):
+        print(
+            f"{row.RaceId:<36}"
+            f"{row.RaceStage:<9}"
+            f"{row.SnapshotCount:>9}  "
+            f"{row.MeanLogLoss:>7.4f}  "
+            f"{row.MeanBrierScore:>7.4f}  "
+            f"{row.TopOneAccuracy:>7.2%}  "
+            f"{row.MeanWinnerProbability:>10.2%}  "
+            f"{row.MeanWinnerRank:>10.2f}"
+        )
+
+
 def main(
     argv: Sequence[str] | None = None,
 ) -> None:
@@ -394,6 +425,7 @@ def main(
 
     print_experiment_result(ablation_result.with_driver)
     print_driver_ablation_result(ablation_result)
+    print_race_stage_diagnostics(ablation_result.with_driver)
 
 
 def _parse_seasons(
