@@ -6,6 +6,7 @@ import pytest
 import telemetryx.modeling.diagnostics as diagnostics
 from telemetryx.modeling.diagnostics import (
     ModelDiagnosticsError,
+    select_worst_snapshots,
     summarize_race_stage_performance,
 )
 from telemetryx.modeling.evaluation import ModelEvaluationError
@@ -63,6 +64,20 @@ def make_staged_snapshots() -> pd.DataFrame:
                 2,
                 1,
                 1,
+            ],
+            "SnapshotLap": [
+                20,
+                5,
+                10,
+                25,
+                8,
+            ],
+            "ActualWinner": [
+                "VER",
+                "VER",
+                "VER",
+                "VER",
+                "VER",
             ],
         }
     )
@@ -218,3 +233,180 @@ def test_race_stage_summary_rejects_unknown_stage(
         match="unknown race stage",
     ):
         summarize_race_stage_performance(pd.DataFrame({"placeholder": [1]}))
+
+
+def test_select_worst_snapshots_orders_by_log_loss(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Worst snapshots should appear first."""
+    staged = make_staged_snapshots()
+    raw = pd.DataFrame({"placeholder": [1]})
+
+    monkeypatch.setattr(
+        diagnostics,
+        "validate_snapshot_evaluation",
+        lambda frame: None,
+    )
+
+    monkeypatch.setattr(
+        diagnostics,
+        "add_race_stages",
+        lambda frame: staged.copy(deep=True),
+    )
+
+    worst = select_worst_snapshots(
+        raw,
+        limit=3,
+    )
+
+    assert worst["SnapshotLogLoss"].tolist() == [
+        0.80,
+        0.50,
+        0.30,
+    ]
+
+
+def test_select_worst_snapshots_filters_race_and_stage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Diagnostics should support focused race-stage investigation."""
+    staged = make_staged_snapshots()
+    raw = pd.DataFrame({"placeholder": [1]})
+
+    monkeypatch.setattr(
+        diagnostics,
+        "validate_snapshot_evaluation",
+        lambda frame: None,
+    )
+
+    monkeypatch.setattr(
+        diagnostics,
+        "add_race_stages",
+        lambda frame: staged.copy(deep=True),
+    )
+
+    worst = select_worst_snapshots(
+        raw,
+        race_id="race_a",
+        race_stage="Early",
+        limit=10,
+    )
+
+    assert worst["RaceId"].tolist() == [
+        "race_a",
+        "race_a",
+    ]
+
+    assert worst["RaceStage"].tolist() == [
+        "Early",
+        "Early",
+    ]
+
+    assert worst["SnapshotLogLoss"].tolist() == [
+        0.30,
+        0.10,
+    ]
+
+
+@pytest.mark.parametrize(
+    "limit",
+    [
+        0,
+        -1,
+    ],
+)
+def test_select_worst_snapshots_rejects_non_positive_limit(
+    monkeypatch: pytest.MonkeyPatch,
+    limit: int,
+) -> None:
+    """Snapshot diagnostic limits must be positive."""
+    monkeypatch.setattr(
+        diagnostics,
+        "validate_snapshot_evaluation",
+        lambda frame: None,
+    )
+
+    with pytest.raises(
+        ModelDiagnosticsError,
+        match="greater than zero",
+    ):
+        select_worst_snapshots(
+            pd.DataFrame({"placeholder": [1]}),
+            limit=limit,
+        )
+
+
+def test_select_worst_snapshots_rejects_boolean_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Booleans must not be accepted as integer limits."""
+    monkeypatch.setattr(
+        diagnostics,
+        "validate_snapshot_evaluation",
+        lambda frame: None,
+    )
+
+    with pytest.raises(
+        TypeError,
+        match="limit must be an integer",
+    ):
+        select_worst_snapshots(
+            pd.DataFrame({"placeholder": [1]}),
+            limit=True,
+        )
+
+
+def test_select_worst_snapshots_rejects_unknown_stage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unknown race-stage filters should fail explicitly."""
+    staged = make_staged_snapshots()
+
+    monkeypatch.setattr(
+        diagnostics,
+        "validate_snapshot_evaluation",
+        lambda frame: None,
+    )
+
+    monkeypatch.setattr(
+        diagnostics,
+        "add_race_stages",
+        lambda frame: staged.copy(deep=True),
+    )
+
+    with pytest.raises(
+        ModelDiagnosticsError,
+        match="Unknown race stage",
+    ):
+        select_worst_snapshots(
+            pd.DataFrame({"placeholder": [1]}),
+            race_stage="Qualifying",
+        )
+
+
+def test_select_worst_snapshots_rejects_empty_filter_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A filter matching no snapshots should fail clearly."""
+    staged = make_staged_snapshots()
+
+    monkeypatch.setattr(
+        diagnostics,
+        "validate_snapshot_evaluation",
+        lambda frame: None,
+    )
+
+    monkeypatch.setattr(
+        diagnostics,
+        "add_race_stages",
+        lambda frame: staged.copy(deep=True),
+    )
+
+    with pytest.raises(
+        ModelDiagnosticsError,
+        match="No snapshots matched",
+    ):
+        select_worst_snapshots(
+            pd.DataFrame({"placeholder": [1]}),
+            race_id="race_that_does_not_exist",
+        )

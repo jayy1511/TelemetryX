@@ -658,6 +658,162 @@ def test_print_experiment_result_lists_validation_races(
     assert "2023_19_mexico_city_grand_prix" in output
 
 
+def test_print_worst_race_stage_snapshots_prints_weakest_group(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The CLI should print worst snapshots from the weakest race-stage."""
+    snapshots = pd.DataFrame(
+        {
+            "placeholder": [
+                1,
+            ]
+        }
+    )
+
+    result = SimpleNamespace(
+        validation_evaluation=SimpleNamespace(
+            snapshots=snapshots,
+        )
+    )
+
+    stage_summary = pd.DataFrame(
+        {
+            "RaceId": [
+                "race_a",
+                "race_b",
+            ],
+            "RaceStage": [
+                "Early",
+                "Middle",
+            ],
+            "SnapshotCount": [
+                10,
+                10,
+            ],
+            "MeanLogLoss": [
+                0.10,
+                0.80,
+            ],
+            "MeanBrierScore": [
+                0.05,
+                0.40,
+            ],
+            "TopOneAccuracy": [
+                1.0,
+                0.60,
+            ],
+            "MeanWinnerProbability": [
+                0.90,
+                0.45,
+            ],
+            "MeanWinnerRank": [
+                1.0,
+                1.5,
+            ],
+        }
+    )
+
+    worst_snapshots = pd.DataFrame(
+        {
+            "RaceId": [
+                "race_b",
+                "race_b",
+            ],
+            "SnapshotLap": [
+                25,
+                26,
+            ],
+            "RaceStage": [
+                "Middle",
+                "Middle",
+            ],
+            "ActualWinner": [
+                "VER",
+                "VER",
+            ],
+            "ActualWinnerProbability": [
+                0.20,
+                0.30,
+            ],
+            "ActualWinnerRank": [
+                2,
+                2,
+            ],
+            "SnapshotLogLoss": [
+                1.60,
+                1.20,
+            ],
+            "SnapshotBrierScore": [
+                0.90,
+                0.70,
+            ],
+            "TopOneCorrect": [
+                False,
+                False,
+            ],
+        }
+    )
+
+    monkeypatch.setattr(
+        runner_module,
+        "summarize_race_stage_performance",
+        lambda frame: stage_summary,
+    )
+
+    received_arguments: list[tuple[pd.DataFrame, str, str, int]] = []
+
+    def fake_select(
+        frame: pd.DataFrame,
+        *,
+        race_id: str | None = None,
+        race_stage: str | None = None,
+        limit: int = 10,
+    ) -> pd.DataFrame:
+        assert race_id is not None
+        assert race_stage is not None
+
+        received_arguments.append(
+            (
+                frame,
+                race_id,
+                race_stage,
+                limit,
+            )
+        )
+
+        return worst_snapshots
+
+    monkeypatch.setattr(
+        runner_module,
+        "select_worst_snapshots",
+        fake_select,
+    )
+
+    runner_module.print_worst_race_stage_snapshots(
+        result,
+        limit=2,
+    )
+
+    output = capsys.readouterr().out
+
+    assert len(received_arguments) == 1
+
+    frame, race_id, race_stage, limit = received_arguments[0]
+
+    assert frame is snapshots
+    assert race_id == "race_b"
+    assert race_stage == "Middle"
+    assert limit == 2
+
+    assert "Worst snapshots from weakest validation race-stage:" in output
+    assert "Race:  race_b" in output
+    assert "Stage: Middle" in output
+    assert "25" in output
+    assert "20.00%" in output
+    assert "1.6000" in output
+
+
 def test_main_forwards_command_line_configuration(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -711,6 +867,11 @@ def test_main_forwards_command_line_configuration(
     monkeypatch.setattr(
         runner_module,
         "print_race_stage_diagnostics",
+        lambda result: None,
+    )
+    monkeypatch.setattr(
+        runner_module,
+        "print_worst_race_stage_snapshots",
         lambda result: None,
     )
 
@@ -803,6 +964,11 @@ def test_main_uses_default_configuration(
     monkeypatch.setattr(
         runner_module,
         "print_race_stage_diagnostics",
+        lambda result: None,
+    )
+    monkeypatch.setattr(
+        runner_module,
+        "print_worst_race_stage_snapshots",
         lambda result: None,
     )
 

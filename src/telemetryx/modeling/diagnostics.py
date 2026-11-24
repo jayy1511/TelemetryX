@@ -89,3 +89,65 @@ def summarize_race_stage_performance(
     )
 
     return summary
+
+
+def select_worst_snapshots(
+    snapshot_evaluation: pd.DataFrame,
+    *,
+    race_id: str | None = None,
+    race_stage: str | None = None,
+    limit: int = 10,
+) -> pd.DataFrame:
+    """
+    Return the worst validation snapshots ranked by log loss.
+
+    Optional filters can restrict the diagnostic to one race and/or race stage.
+    """
+    validate_snapshot_evaluation(snapshot_evaluation)
+
+    if isinstance(limit, bool) or not isinstance(limit, int):
+        raise TypeError("limit must be an integer.")
+
+    if limit <= 0:
+        raise ModelDiagnosticsError("limit must be greater than zero.")
+
+    staged = add_race_stages(snapshot_evaluation)
+
+    filtered = staged.copy(deep=True)
+
+    if race_id is not None:
+        filtered = filtered.loc[filtered["RaceId"].eq(race_id)]
+
+    if race_stage is not None:
+        if race_stage not in RACE_STAGE_ORDER:
+            raise ModelDiagnosticsError(f"Unknown race stage: {race_stage}.")
+
+        filtered = filtered.loc[filtered["RaceStage"].eq(race_stage)]
+
+    if filtered.empty:
+        raise ModelDiagnosticsError(
+            "No snapshots matched the requested diagnostic filters."
+        )
+
+    columns = [
+        "RaceId",
+        "SnapshotLap",
+        "RaceStage",
+        "ActualWinner",
+        "ActualWinnerProbability",
+        "ActualWinnerRank",
+        "SnapshotLogLoss",
+        "SnapshotBrierScore",
+        "TopOneCorrect",
+    ]
+
+    return (
+        filtered.sort_values(
+            "SnapshotLogLoss",
+            ascending=False,
+            kind="stable",
+        )
+        .loc[:, columns]
+        .head(limit)
+        .reset_index(drop=True)
+    )

@@ -20,6 +20,7 @@ from telemetryx.modeling.benchmark_evaluation import (
     evaluate_validation_benchmarks,
 )
 from telemetryx.modeling.diagnostics import (
+    select_worst_snapshots,
     summarize_race_stage_performance,
 )
 from telemetryx.modeling.experiment import (
@@ -404,6 +405,52 @@ def print_race_stage_diagnostics(
         )
 
 
+def print_worst_race_stage_snapshots(
+    result: BaselineExperimentResult,
+    *,
+    limit: int = 10,
+) -> None:
+    """Print the worst snapshots from the weakest validation race-stage."""
+    snapshots = result.validation_evaluation.snapshots
+
+    stage_summary = summarize_race_stage_performance(snapshots)
+
+    worst_group = stage_summary.sort_values(
+        "MeanLogLoss",
+        ascending=False,
+        kind="stable",
+    ).iloc[0]
+
+    race_id = str(worst_group["RaceId"])
+    race_stage = str(worst_group["RaceStage"])
+
+    worst_snapshots = select_worst_snapshots(
+        snapshots,
+        race_id=race_id,
+        race_stage=race_stage,
+        limit=limit,
+    )
+
+    print()
+    print("Worst snapshots from weakest validation race-stage:")
+    print(f"Race:  {race_id}")
+    print(f"Stage: {race_stage}")
+    print()
+
+    print("Lap  Winner  WinnerProb  WinnerRank  LogLoss   Brier     Top-1")
+
+    for row in worst_snapshots.itertuples(index=False):
+        print(
+            f"{row.SnapshotLap:>3}  "
+            f"{row.ActualWinner:<6}  "
+            f"{row.ActualWinnerProbability:>10.2%}  "
+            f"{row.ActualWinnerRank:>10}  "
+            f"{row.SnapshotLogLoss:>7.4f}  "
+            f"{row.SnapshotBrierScore:>7.4f}  "
+            f"{str(row.TopOneCorrect):>5}"
+        )
+
+
 def main(
     argv: Sequence[str] | None = None,
 ) -> None:
@@ -426,6 +473,7 @@ def main(
     print_experiment_result(ablation_result.with_driver)
     print_driver_ablation_result(ablation_result)
     print_race_stage_diagnostics(ablation_result.with_driver)
+    print_worst_race_stage_snapshots(ablation_result.with_driver)
 
 
 def _parse_seasons(
