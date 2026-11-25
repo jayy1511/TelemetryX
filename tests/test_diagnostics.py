@@ -6,6 +6,7 @@ import pytest
 import telemetryx.modeling.diagnostics as diagnostics
 from telemetryx.modeling.diagnostics import (
     ModelDiagnosticsError,
+    add_predicted_winner_details,
     select_worst_snapshots,
     summarize_race_stage_performance,
 )
@@ -410,3 +411,262 @@ def test_select_worst_snapshots_rejects_empty_filter_result(
             pd.DataFrame({"placeholder": [1]}),
             race_id="race_that_does_not_exist",
         )
+
+
+def test_add_predicted_winner_details_adds_unique_favorite() -> None:
+    """Selected snapshots should receive the model's top predicted driver."""
+    snapshots = pd.DataFrame(
+        {
+            "RaceId": [
+                "race_a",
+                "race_a",
+            ],
+            "SnapshotLap": [
+                10,
+                20,
+            ],
+            "ActualWinner": [
+                "VER",
+                "VER",
+            ],
+        }
+    )
+
+    predictions = pd.DataFrame(
+        {
+            "RaceId": [
+                "race_a",
+                "race_a",
+                "race_a",
+                "race_a",
+            ],
+            "SnapshotLap": [
+                10,
+                10,
+                20,
+                20,
+            ],
+            "Driver": [
+                "VER",
+                "LEC",
+                "VER",
+                "LEC",
+            ],
+            "WinnerProbability": [
+                0.30,
+                0.70,
+                0.80,
+                0.20,
+            ],
+        }
+    )
+
+    enriched = add_predicted_winner_details(
+        snapshots,
+        predictions,
+    )
+
+    assert enriched["PredictedWinner"].tolist() == [
+        "LEC",
+        "VER",
+    ]
+
+    assert enriched["PredictedWinnerProbability"].tolist() == pytest.approx(
+        [
+            0.70,
+            0.80,
+        ]
+    )
+
+
+def test_add_predicted_winner_details_preserves_snapshot_columns() -> None:
+    """Enrichment should preserve the original snapshot diagnostics."""
+    snapshots = pd.DataFrame(
+        {
+            "RaceId": [
+                "race_a",
+            ],
+            "SnapshotLap": [
+                22,
+            ],
+            "ActualWinner": [
+                "VER",
+            ],
+            "SnapshotLogLoss": [
+                1.5,
+            ],
+        }
+    )
+
+    predictions = pd.DataFrame(
+        {
+            "RaceId": [
+                "race_a",
+                "race_a",
+            ],
+            "SnapshotLap": [
+                22,
+                22,
+            ],
+            "Driver": [
+                "VER",
+                "LEC",
+            ],
+            "WinnerProbability": [
+                0.20,
+                0.80,
+            ],
+        }
+    )
+
+    enriched = add_predicted_winner_details(
+        snapshots,
+        predictions,
+    )
+
+    assert enriched["ActualWinner"].tolist() == [
+        "VER",
+    ]
+
+    assert enriched["SnapshotLogLoss"].tolist() == pytest.approx(
+        [
+            1.5,
+        ]
+    )
+
+
+def test_add_predicted_winner_details_rejects_tied_favorite() -> None:
+    """A snapshot must have one unique predicted winner."""
+    snapshots = pd.DataFrame(
+        {
+            "RaceId": [
+                "race_a",
+            ],
+            "SnapshotLap": [
+                22,
+            ],
+        }
+    )
+
+    predictions = pd.DataFrame(
+        {
+            "RaceId": [
+                "race_a",
+                "race_a",
+            ],
+            "SnapshotLap": [
+                22,
+                22,
+            ],
+            "Driver": [
+                "VER",
+                "LEC",
+            ],
+            "WinnerProbability": [
+                0.50,
+                0.50,
+            ],
+        }
+    )
+
+    with pytest.raises(
+        ModelDiagnosticsError,
+        match="one unique predicted winner",
+    ):
+        add_predicted_winner_details(
+            snapshots,
+            predictions,
+        )
+
+
+def test_add_predicted_winner_details_rejects_unmatched_snapshots() -> None:
+    """Selected snapshots must have matching prediction rows."""
+    snapshots = pd.DataFrame(
+        {
+            "RaceId": [
+                "race_a",
+            ],
+            "SnapshotLap": [
+                22,
+            ],
+        }
+    )
+
+    predictions = pd.DataFrame(
+        {
+            "RaceId": [
+                "race_b",
+            ],
+            "SnapshotLap": [
+                22,
+            ],
+            "Driver": [
+                "VER",
+            ],
+            "WinnerProbability": [
+                1.0,
+            ],
+        }
+    )
+
+    with pytest.raises(
+        ModelDiagnosticsError,
+        match="No predictions matched",
+    ):
+        add_predicted_winner_details(
+            snapshots,
+            predictions,
+        )
+
+
+def test_add_predicted_winner_details_does_not_modify_inputs() -> None:
+    """Prediction enrichment should leave source frames unchanged."""
+    snapshots = pd.DataFrame(
+        {
+            "RaceId": [
+                "race_a",
+            ],
+            "SnapshotLap": [
+                22,
+            ],
+        }
+    )
+
+    predictions = pd.DataFrame(
+        {
+            "RaceId": [
+                "race_a",
+                "race_a",
+            ],
+            "SnapshotLap": [
+                22,
+                22,
+            ],
+            "Driver": [
+                "VER",
+                "LEC",
+            ],
+            "WinnerProbability": [
+                0.20,
+                0.80,
+            ],
+        }
+    )
+
+    original_snapshots = snapshots.copy(deep=True)
+    original_predictions = predictions.copy(deep=True)
+
+    add_predicted_winner_details(
+        snapshots,
+        predictions,
+    )
+
+    pd.testing.assert_frame_equal(
+        snapshots,
+        original_snapshots,
+    )
+
+    pd.testing.assert_frame_equal(
+        predictions,
+        original_predictions,
+    )

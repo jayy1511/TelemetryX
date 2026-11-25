@@ -151,3 +151,136 @@ def select_worst_snapshots(
         .head(limit)
         .reset_index(drop=True)
     )
+
+
+def add_predicted_winner_details(
+    snapshots: pd.DataFrame,
+    predictions: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Add the model's top predicted driver to snapshot diagnostics.
+
+    Prediction probabilities are matched by RaceId and SnapshotLap.
+    """
+    required_snapshot_columns = (
+        "RaceId",
+        "SnapshotLap",
+    )
+
+    required_prediction_columns = (
+        "RaceId",
+        "SnapshotLap",
+        "Driver",
+        "WinnerProbability",
+    )
+
+    missing_snapshot_columns = [
+        column
+        for column in required_snapshot_columns
+        if column not in snapshots.columns
+    ]
+
+    if missing_snapshot_columns:
+        raise ModelDiagnosticsError(
+            "Snapshot diagnostics are missing required columns: "
+            f"{missing_snapshot_columns}."
+        )
+
+    missing_prediction_columns = [
+        column
+        for column in required_prediction_columns
+        if column not in predictions.columns
+    ]
+
+    if missing_prediction_columns:
+        raise ModelDiagnosticsError(
+            f"Predictions are missing required columns: {missing_prediction_columns}."
+        )
+
+    if snapshots.empty:
+        raise ModelDiagnosticsError("Snapshot diagnostics cannot be empty.")
+
+    if predictions.empty:
+        raise ModelDiagnosticsError("Predictions cannot be empty.")
+
+    selected_keys = snapshots.loc[
+        :,
+        [
+            "RaceId",
+            "SnapshotLap",
+        ],
+    ].drop_duplicates()
+
+    selected_predictions = predictions.merge(
+        selected_keys,
+        on=[
+            "RaceId",
+            "SnapshotLap",
+        ],
+        how="inner",
+        validate="many_to_one",
+    )
+
+    if selected_predictions.empty:
+        raise ModelDiagnosticsError("No predictions matched the selected snapshots.")
+
+    top_probability = selected_predictions.groupby(
+        [
+            "RaceId",
+            "SnapshotLap",
+        ],
+        sort=False,
+        dropna=False,
+    )["WinnerProbability"].transform("max")
+
+    favorites = selected_predictions.loc[
+        selected_predictions["WinnerProbability"].eq(top_probability)
+    ].copy(deep=True)
+
+    favorite_counts = favorites.groupby(
+        [
+            "RaceId",
+            "SnapshotLap",
+        ],
+        sort=False,
+        dropna=False,
+    )["Driver"].transform("size")
+
+    if bool(favorite_counts.ne(1).any()):
+        raise ModelDiagnosticsError(
+            "Every selected snapshot must have one unique predicted winner."
+        )
+
+    favorites = favorites.rename(
+        columns={
+            "Driver": "PredictedWinner",
+            "WinnerProbability": "PredictedWinnerProbability",
+        }
+    )
+
+    favorites = favorites.loc[
+        :,
+        [
+            "RaceId",
+            "SnapshotLap",
+            "PredictedWinner",
+            "PredictedWinnerProbability",
+        ],
+    ]
+
+    enriched = snapshots.merge(
+        favorites,
+        on=[
+            "RaceId",
+            "SnapshotLap",
+        ],
+        how="left",
+        validate="one_to_one",
+    )
+
+    if bool(enriched["PredictedWinner"].isna().any()):
+        raise ModelDiagnosticsError(
+            "Some selected snapshots are missing prediction details."
+        )
+
+    return enriched

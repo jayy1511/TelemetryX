@@ -663,6 +663,14 @@ def test_print_worst_race_stage_snapshots_prints_weakest_group(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """The CLI should print worst snapshots from the weakest race-stage."""
+    validation_predictions = pd.DataFrame(
+        {
+            "placeholder": [
+                1,
+            ]
+        }
+    )
+
     snapshots = pd.DataFrame(
         {
             "placeholder": [
@@ -674,7 +682,8 @@ def test_print_worst_race_stage_snapshots_prints_weakest_group(
     result = SimpleNamespace(
         validation_evaluation=SimpleNamespace(
             snapshots=snapshots,
-        )
+        ),
+        validation_predictions=validation_predictions,
     )
 
     stage_summary = pd.DataFrame(
@@ -754,6 +763,23 @@ def test_print_worst_race_stage_snapshots_prints_weakest_group(
             ],
         }
     )
+    enriched_snapshots = worst_snapshots.copy(deep=True)
+
+    enriched_snapshots["PredictedWinner"] = [
+        "LEC",
+        "LEC",
+    ]
+
+    enriched_snapshots["PredictedWinnerProbability"] = [
+        0.75,
+        0.65,
+    ]
+    enrichment_calls: list[
+        tuple[
+            pd.DataFrame,
+            pd.DataFrame,
+        ]
+    ] = []
 
     monkeypatch.setattr(
         runner_module,
@@ -790,10 +816,36 @@ def test_print_worst_race_stage_snapshots_prints_weakest_group(
         fake_select,
     )
 
+    def fake_add_predicted_winner_details(
+        selected_snapshots: pd.DataFrame,
+        predictions: pd.DataFrame,
+    ) -> pd.DataFrame:
+        enrichment_calls.append(
+            (
+                selected_snapshots,
+                predictions,
+            )
+        )
+
+        return enriched_snapshots
+
+    monkeypatch.setattr(
+        runner_module,
+        "add_predicted_winner_details",
+        fake_add_predicted_winner_details,
+    )
+
     runner_module.print_worst_race_stage_snapshots(
         result,
         limit=2,
     )
+
+    assert len(enrichment_calls) == 1
+
+    selected_snapshots, predictions = enrichment_calls[0]
+
+    assert selected_snapshots is worst_snapshots
+    assert predictions is validation_predictions
 
     output = capsys.readouterr().out
 
@@ -812,6 +864,10 @@ def test_print_worst_race_stage_snapshots_prints_weakest_group(
     assert "25" in output
     assert "20.00%" in output
     assert "1.6000" in output
+    assert "Predicted" in output
+    assert "PredProb" in output
+    assert "LEC" in output
+    assert "75.00%" in output
 
 
 def test_main_forwards_command_line_configuration(

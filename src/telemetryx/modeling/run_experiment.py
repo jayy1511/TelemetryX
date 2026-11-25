@@ -20,6 +20,7 @@ from telemetryx.modeling.benchmark_evaluation import (
     evaluate_validation_benchmarks,
 )
 from telemetryx.modeling.diagnostics import (
+    add_predicted_winner_details,
     select_worst_snapshots,
     summarize_race_stage_performance,
 )
@@ -430,6 +431,10 @@ def print_worst_race_stage_snapshots(
         race_stage=race_stage,
         limit=limit,
     )
+    worst_snapshots = add_predicted_winner_details(
+        worst_snapshots,
+        result.validation_predictions,
+    )
 
     print()
     print("Worst snapshots from weakest validation race-stage:")
@@ -437,13 +442,18 @@ def print_worst_race_stage_snapshots(
     print(f"Stage: {race_stage}")
     print()
 
-    print("Lap  Winner  WinnerProb  WinnerRank  LogLoss   Brier     Top-1")
+    print(
+        "Lap  Actual  ActualProb  Predicted  PredProb   "
+        "WinnerRank  LogLoss   Brier     Top-1"
+    )
 
     for row in worst_snapshots.itertuples(index=False):
         print(
             f"{row.SnapshotLap:>3}  "
             f"{row.ActualWinner:<6}  "
             f"{row.ActualWinnerProbability:>10.2%}  "
+            f"{row.PredictedWinner:<9}  "
+            f"{row.PredictedWinnerProbability:>8.2%}  "
             f"{row.ActualWinnerRank:>10}  "
             f"{row.SnapshotLogLoss:>7.4f}  "
             f"{row.SnapshotBrierScore:>7.4f}  "
