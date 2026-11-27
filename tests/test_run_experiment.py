@@ -679,11 +679,18 @@ def test_print_worst_race_stage_snapshots_prints_weakest_group(
         }
     )
 
+    validation_features = pd.DataFrame(
+        {
+            "placeholder": [1],
+        }
+    )
+
     result = SimpleNamespace(
         validation_evaluation=SimpleNamespace(
             snapshots=snapshots,
         ),
         validation_predictions=validation_predictions,
+        validation_features=validation_features,
     )
 
     stage_summary = pd.DataFrame(
@@ -780,6 +787,40 @@ def test_print_worst_race_stage_snapshots_prints_weakest_group(
             pd.DataFrame,
         ]
     ] = []
+    driver_features = pd.DataFrame(
+        {
+            "RaceId": [
+                "race_b",
+                "race_b",
+                "race_b",
+                "race_b",
+            ],
+            "SnapshotLap": [
+                25,
+                25,
+                26,
+                26,
+            ],
+            "Driver": [
+                "LEC",
+                "VER",
+                "LEC",
+                "VER",
+            ],
+            "Position": [
+                1,
+                2,
+                1,
+                2,
+            ],
+            "TyreLife": [
+                5.0,
+                15.0,
+                6.0,
+                16.0,
+            ],
+        }
+    )
 
     monkeypatch.setattr(
         runner_module,
@@ -835,6 +876,39 @@ def test_print_worst_race_stage_snapshots_prints_weakest_group(
         fake_add_predicted_winner_details,
     )
 
+    feature_inspection_calls: list[
+        tuple[
+            pd.DataFrame,
+            str,
+            list[int],
+            list[str],
+        ]
+    ] = []
+
+    def fake_select_driver_snapshot_features(
+        features: pd.DataFrame,
+        *,
+        race_id: str,
+        snapshot_laps: list[int],
+        drivers: list[str],
+    ) -> pd.DataFrame:
+        feature_inspection_calls.append(
+            (
+                features,
+                race_id,
+                snapshot_laps,
+                drivers,
+            )
+        )
+
+        return driver_features
+
+    monkeypatch.setattr(
+        runner_module,
+        "select_driver_snapshot_features",
+        fake_select_driver_snapshot_features,
+    )
+
     runner_module.print_worst_race_stage_snapshots(
         result,
         limit=2,
@@ -846,6 +920,15 @@ def test_print_worst_race_stage_snapshots_prints_weakest_group(
 
     assert selected_snapshots is worst_snapshots
     assert predictions is validation_predictions
+
+    assert len(feature_inspection_calls) == 1
+
+    features, inspected_race, laps, drivers = feature_inspection_calls[0]
+
+    assert features is validation_features
+    assert inspected_race == "race_b"
+    assert laps == [25, 26]
+    assert drivers == ["VER", "LEC"]
 
     output = capsys.readouterr().out
 
@@ -868,6 +951,14 @@ def test_print_worst_race_stage_snapshots_prints_weakest_group(
     assert "PredProb" in output
     assert "LEC" in output
     assert "75.00%" in output
+
+    assert "Feature diagnostics for incorrect predictions:" in output
+    assert "Actual winner: VER" in output
+    assert "Incorrect favorite: LEC" in output
+    assert "Snapshot laps: [25, 26]" in output
+    assert "Position" in output
+    assert "TyreLife" in output
+    assert "15.0000" in output
 
 
 def test_main_forwards_command_line_configuration(

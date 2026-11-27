@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import pandas as pd
 
+from telemetryx.features.engineering import MODEL_FEATURE_COLUMNS
 from telemetryx.modeling.evaluation import (
     ModelEvaluationError,
     validate_snapshot_evaluation,
@@ -284,3 +287,87 @@ def add_predicted_winner_details(
         )
 
     return enriched
+
+
+def select_driver_snapshot_features(
+    features: pd.DataFrame,
+    *,
+    race_id: str,
+    snapshot_laps: Sequence[int],
+    drivers: Sequence[str],
+) -> pd.DataFrame:
+    """
+    Extract model features for selected drivers and race snapshots.
+
+    This is a post-hoc diagnostic used to investigate model predictions.
+    It does not modify the source features or participate in model training.
+    """
+    if not isinstance(features, pd.DataFrame):
+        raise TypeError("features must be a pandas DataFrame.")
+
+    if features.empty:
+        raise ModelDiagnosticsError("Feature data cannot be empty.")
+
+    if not snapshot_laps:
+        raise ModelDiagnosticsError("At least one snapshot lap must be provided.")
+
+    if not drivers:
+        raise ModelDiagnosticsError("At least one driver must be provided.")
+
+    columns = list(
+        dict.fromkeys(
+            [
+                "RaceId",
+                "SnapshotLap",
+                "Driver",
+                *MODEL_FEATURE_COLUMNS,
+            ]
+        )
+    )
+
+    missing_columns = [column for column in columns if column not in features.columns]
+
+    if missing_columns:
+        raise ModelDiagnosticsError(
+            f"Features are missing required diagnostic columns: {missing_columns}."
+        )
+
+    selected = features.loc[
+        features["RaceId"].eq(race_id)
+        & features["SnapshotLap"].isin(snapshot_laps)
+        & features["Driver"].isin(drivers),
+        columns,
+    ].copy(deep=True)
+
+    if selected.empty:
+        raise ModelDiagnosticsError(
+            "No feature rows matched the requested diagnostic filters."
+        )
+
+    if bool(
+        selected.duplicated(
+            subset=[
+                "RaceId",
+                "SnapshotLap",
+                "Driver",
+            ]
+        ).any()
+    ):
+        raise ModelDiagnosticsError(
+            "Selected features contain duplicate driver-snapshot rows."
+        )
+
+    expected_row_count = len(set(snapshot_laps)) * len(set(drivers))
+
+    if len(selected) != expected_row_count:
+        raise ModelDiagnosticsError(
+            "Some requested driver-snapshot feature rows are missing."
+        )
+
+    return selected.sort_values(
+        [
+            "SnapshotLap",
+            "Driver",
+        ],
+        kind="stable",
+    ).reset_index(drop=True)

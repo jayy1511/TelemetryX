@@ -4,9 +4,11 @@ import pandas as pd
 import pytest
 
 import telemetryx.modeling.diagnostics as diagnostics
+from telemetryx.features.engineering import MODEL_FEATURE_COLUMNS
 from telemetryx.modeling.diagnostics import (
     ModelDiagnosticsError,
     add_predicted_winner_details,
+    select_driver_snapshot_features,
     select_worst_snapshots,
     summarize_race_stage_performance,
 )
@@ -669,4 +671,237 @@ def test_add_predicted_winner_details_does_not_modify_inputs() -> None:
     pd.testing.assert_frame_equal(
         predictions,
         original_predictions,
+    )
+
+
+def make_diagnostic_features() -> pd.DataFrame:
+    """Build deterministic feature rows across races, laps and drivers."""
+    features = pd.DataFrame(
+        {
+            "RaceId": [
+                "race_a",
+                "race_a",
+                "race_a",
+                "race_a",
+                "race_a",
+                "race_b",
+            ],
+            "SnapshotLap": [
+                20,
+                10,
+                20,
+                10,
+                10,
+                10,
+            ],
+            "Driver": [
+                "VER",
+                "PER",
+                "PER",
+                "VER",
+                "LEC",
+                "VER",
+            ],
+            "Position": [
+                1,
+                1,
+                2,
+                2,
+                3,
+                1,
+            ],
+        }
+    )
+
+    for column in MODEL_FEATURE_COLUMNS:
+        if column not in features.columns:
+            features[column] = 0
+
+    return features
+
+
+def test_select_driver_snapshot_features_filters_requested_rows() -> None:
+    """Only requested race, lap and driver combinations should be returned."""
+    features = make_diagnostic_features()
+
+    selected = select_driver_snapshot_features(
+        features,
+        race_id="race_a",
+        snapshot_laps=[10, 20],
+        drivers=["VER", "PER"],
+    )
+
+    assert len(selected) == 4
+
+    assert selected["RaceId"].tolist() == [
+        "race_a",
+        "race_a",
+        "race_a",
+        "race_a",
+    ]
+
+    assert selected["SnapshotLap"].tolist() == [
+        10,
+        10,
+        20,
+        20,
+    ]
+
+    assert selected["Driver"].tolist() == [
+        "PER",
+        "VER",
+        "PER",
+        "VER",
+    ]
+
+    assert selected["Position"].tolist() == [
+        1,
+        2,
+        2,
+        1,
+    ]
+
+
+def test_select_driver_snapshot_features_uses_expected_schema() -> None:
+    """Diagnostics should return only identity and model feature columns."""
+    features = make_diagnostic_features()
+    features["WonRace"] = False
+
+    selected = select_driver_snapshot_features(
+        features,
+        race_id="race_a",
+        snapshot_laps=[10],
+        drivers=["VER", "PER"],
+    )
+
+    expected_columns = list(
+        dict.fromkeys(
+            [
+                "RaceId",
+                "SnapshotLap",
+                "Driver",
+                *MODEL_FEATURE_COLUMNS,
+            ]
+        )
+    )
+
+    assert selected.columns.tolist() == expected_columns
+    assert "WonRace" not in selected.columns
+
+
+def test_select_driver_snapshot_features_rejects_missing_rows() -> None:
+    """Every requested driver-lap combination must exist."""
+    features = make_diagnostic_features()
+
+    with pytest.raises(
+        ModelDiagnosticsError,
+        match="Some requested driver-snapshot feature rows are missing",
+    ):
+        select_driver_snapshot_features(
+            features,
+            race_id="race_a",
+            snapshot_laps=[10, 20],
+            drivers=["VER", "LEC"],
+        )
+
+
+def test_select_driver_snapshot_features_rejects_duplicate_rows() -> None:
+    """Duplicate driver-snapshot identities must be rejected."""
+    features = make_diagnostic_features()
+
+    features = pd.concat(
+        [
+            features,
+            features.iloc[[0]],
+        ],
+        ignore_index=True,
+    )
+
+    with pytest.raises(
+        ModelDiagnosticsError,
+        match="duplicate driver-snapshot rows",
+    ):
+        select_driver_snapshot_features(
+            features,
+            race_id="race_a",
+            snapshot_laps=[20],
+            drivers=["VER", "PER"],
+        )
+
+
+def test_select_driver_snapshot_features_rejects_empty_laps() -> None:
+    """At least one snapshot lap must be requested."""
+    with pytest.raises(
+        ModelDiagnosticsError,
+        match="At least one snapshot lap",
+    ):
+        select_driver_snapshot_features(
+            make_diagnostic_features(),
+            race_id="race_a",
+            snapshot_laps=[],
+            drivers=["VER"],
+        )
+
+
+def test_select_driver_snapshot_features_rejects_empty_drivers() -> None:
+    """At least one driver must be requested."""
+    with pytest.raises(
+        ModelDiagnosticsError,
+        match="At least one driver",
+    ):
+        select_driver_snapshot_features(
+            make_diagnostic_features(),
+            race_id="race_a",
+            snapshot_laps=[10],
+            drivers=[],
+        )
+
+
+def test_select_driver_snapshot_features_rejects_missing_columns() -> None:
+    """Required model feature columns must be present."""
+    features = make_diagnostic_features().drop(columns=["Position"])
+
+    with pytest.raises(
+        ModelDiagnosticsError,
+        match="Features are missing required diagnostic columns",
+    ):
+        select_driver_snapshot_features(
+            features,
+            race_id="race_a",
+            snapshot_laps=[10],
+            drivers=["VER"],
+        )
+
+
+def test_select_driver_snapshot_features_rejects_unmatched_filters() -> None:
+    """Filters matching no rows should fail explicitly."""
+    with pytest.raises(
+        ModelDiagnosticsError,
+        match="No feature rows matched",
+    ):
+        select_driver_snapshot_features(
+            make_diagnostic_features(),
+            race_id="unknown_race",
+            snapshot_laps=[10],
+            drivers=["VER"],
+        )
+
+
+def test_select_driver_snapshot_features_does_not_modify_input() -> None:
+    """Feature inspection must preserve the original feature frame."""
+    features = make_diagnostic_features()
+    original = features.copy(deep=True)
+
+    selected = select_driver_snapshot_features(
+        features,
+        race_id="race_a",
+        snapshot_laps=[10, 20],
+        drivers=["VER", "PER"],
+    )
+
+    selected.loc[0, "Position"] = 99
+
+    pd.testing.assert_frame_equal(
+        features,
+        original,
     )

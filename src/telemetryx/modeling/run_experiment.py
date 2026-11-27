@@ -21,6 +21,7 @@ from telemetryx.modeling.benchmark_evaluation import (
 )
 from telemetryx.modeling.diagnostics import (
     add_predicted_winner_details,
+    select_driver_snapshot_features,
     select_worst_snapshots,
     summarize_race_stage_performance,
 )
@@ -458,6 +459,52 @@ def print_worst_race_stage_snapshots(
             f"{row.SnapshotLogLoss:>7.4f}  "
             f"{row.SnapshotBrierScore:>7.4f}  "
             f"{str(row.TopOneCorrect):>5}"
+        )
+
+    incorrect_snapshots = worst_snapshots.loc[
+        worst_snapshots["TopOneCorrect"].eq(False)
+    ]
+
+    print()
+    print("Feature diagnostics for incorrect predictions:")
+
+    if incorrect_snapshots.empty:
+        print("No incorrect predictions among the selected snapshots.")
+        return
+
+    grouped = incorrect_snapshots.groupby(
+        [
+            "ActualWinner",
+            "PredictedWinner",
+        ],
+        sort=False,
+    )
+
+    for (actual_winner, predicted_winner), group in grouped:
+        snapshot_laps = sorted(int(lap) for lap in group["SnapshotLap"].tolist())
+
+        driver_features = select_driver_snapshot_features(
+            result.validation_features,
+            race_id=race_id,
+            snapshot_laps=snapshot_laps,
+            drivers=[
+                str(actual_winner),
+                str(predicted_winner),
+            ],
+        )
+
+        print()
+        print(f"Race: {race_id}")
+        print(f"Actual winner: {actual_winner}")
+        print(f"Incorrect favorite: {predicted_winner}")
+        print(f"Snapshot laps: {snapshot_laps}")
+        print()
+
+        print(
+            driver_features.drop(columns=["RaceId"]).to_string(
+                index=False,
+                float_format=lambda value: f"{value:.4f}",
+            )
         )
 
 
